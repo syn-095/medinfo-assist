@@ -53,6 +53,24 @@ Also a build-process failure worth noting: one scripted edit wrote literal backs
 
 **Rules frozen** at git tag `rules-frozen-heldout` (8 Nov) before William writes the held-out set. **Score on the original set at freeze:** triage 30/30, PV 29/30 (E23, see above), source retrieved 23/23, source cited 22/23 (E19), citation check 25/25, self-test PASS. Still a training-set number. Report it next to the held-out score, which is the one that counts.
 
+## LLM layer: backends and safety classifier (Sun 8 Nov)
+
+**Architecture point for the deck: a deterministic floor plus an LLM recall layer, where the LLM can never downgrade.**
+- The regex/lexicon rules (frozen) are the floor for triage, the PV flag and the quality flag. They are transparent, auditable, and behave the same with no LLM at all.
+- An LLM safety classifier (`medinfo/safety_llm.py`) reads *only* the enquiry and returns strict JSON (`adverse_event, serious, special_situations[], paediatric_or_elderly, off_label, patient_specific, quality_complaint, evidence`). The merge in `pipeline.py` can only **add**: extra PV reasons, quality reasons and escalation hits, all tagged `[llm]`. It cannot remove or downgrade anything the rules raised. Invalid JSON, a timeout or any error → the LLM result is ignored, the regex result stands, and the status is recorded in the result, the UI and the audit log (`llm_safety`). Offline = regex only.
+- Why this shape: rules give a guaranteed, explainable minimum (an assessor or auditor can read why something was flagged); the LLM covers phrasing the rules never anticipated (the recall gap that three rounds of fresh probes kept exposing). The asymmetry is deliberate: in PV, a false negative (a missed AE) is the regulatory failure, while a false positive costs an officer a minute. So the LLM is allowed to make the system more cautious, never less.
+- The classifier prompt treats the enquiry as untrusted data (injection-resistant), defines AE vs hypothetical question and each special situation, and asks for a verbatim evidence span that is shown to the officer.
+- Every result records which layer caught each flag (`regex` / `llm` / `both`), plus the regex-only decision, so `run_tests.py` can report "LLM-only catches" and "LLM-added over-escalations" separately.
+
+**Backends** (`medinfo/llm.py`; selection: explicit `--backend` > `ANTHROPIC_API_KEY` → `api` > `MEDINFO_BACKEND=claude_cli` → `claude_cli` > `extractive`):
+- `api`: Anthropic Messages API. **This is the production path**, with an enterprise agreement and data-retention controls (zero-retention / no-training terms, regional processing as required), never a personal account.
+- `claude_cli`: Claude Code headless (`claude -p`) on William's Claude subscription. **Development evaluation only**, so the LLM path could be tested without an API key. Isolation: default system prompt replaced (`--system-prompt-file`), all tools disabled (`--tools ""`), MCP dropped (`--strict-mcp-config`), no settings sources, skills off, no session persistence, and cwd = a fresh empty temp dir (no project files or CLAUDE.md). The init event is checked on every call and the reply is refused if any tool or MCP server is present. The model alias `sonnet` resolved to `claude-sonnet-5` (this CLI version rejected the full `claude-sonnet-5-5` ID), so the CLI results are for a slightly different model than the API path would use. **Latency via the CLI is not representative** (process start-up and session overhead each call, roughly 8-20 s per call here); don't quote it as product latency.
+- `extractive`: no LLM. **The hosted Streamlit demo runs in this mode** (the regex floor plus verbatim extraction), so assessors can use it without a key and no enquiry text leaves the app.
+- **Residual isolation gap:** Claude Code still injects a small account-context block (the subscriber's email address) into every call; only `--bare` removes it, and `--bare` requires an API key. Acceptable for synthetic data in development; another reason the CLI is not a deployment path.
+- **AI self-report vs harness truth:** asked what tools it had in the isolated session, the model confidently listed Bash, Read, Write, WebSearch… The init event showed `tools: []`. Lesson: verify isolation from what the harness reports, never from the model's description of itself.
+
+**Observations from the first live `claude_cli` call** (E26, rash): the draft was grounded and the citation check passed, but its last sentence ("This information… does not constitute an assessment of this individual patient's case…") carried a §4.8 citation that does not support it. The prompt's "cite every sentence" rule pushes the model to attach citations to boilerplate ("citation laundering"). The numeric grounding check cannot catch non-numeric claims. Possible fixes: allow an explicit uncited disclaimer class, or add a lexical-overlap or NLI-style support check per sentence.
+
 ## Assumptions
 
 - Enquiries are in English, free text, one enquiry per submission.
@@ -69,4 +87,4 @@ Also a build-process failure worth noting: one scripted edit wrote literal backs
   - PowerShell wrote `.gitignore` with a UTF-8 BOM, which silently breaks the first ignore rule. Rewritten.
   - Extractive mode initially returned nothing for "What are the contraindications?" because the word only appears in the section heading. Fixed with a heading-match bonus.
   - The danger pattern: the AI tuned rules until the test set passed 30/30, which looks great but is overfitting. The held-out paraphrase check was a deliberate human-style step to counter that.
-- **Open questions for Mon/Tue:** run in Claude mode (the grounding check matters most there); run the held-out set with `--data` and report both scores; whether every AE should escalate.
+- **Open questions for Mon/Tue:** run the held-out set with `--data`, offline AND `--backend claude_cli`, and report both; run the API path once a key is available (different model from the CLI alias); whether every AE should escalate; a sentence-level support check beyond numbers.
