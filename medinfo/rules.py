@@ -115,13 +115,73 @@ def find_conditions(text: str) -> list[str]:
     return found
 
 
+# Symptom lexicon: terms from both SmPC §4.8 sections plus common lay wording.
+SYMPTOMS = r"""headaches?|migraine attacks?|dizz(y|iness)|light[- ]?headed|vertigo|faint(ed|ing|ness)?|passed out|black(ed)? out|
+tired(ness)?|fatigue|exhausted|exhaustion|letharg\w*|hyperkalaemia|high potassium|hypotension|low blood pressure|
+rash(es)?|hives|itch(y|ing|iness)?|pruritus|swell(ing|ed)|swollen|angioedema|puffy|nause(a|ous)|feel(ing)? sick|felt sick|
+being sick|been sick|throwing up|threw up|vomit\w*|diarrh(o)?ea|loose stools?|constipat\w*|stomach (pain|ache|cramps?|upset)|
+stomach ?ache|tummy (pain|ache|upset)|abdominal pain|belly pain|indigestion|heartburn|bloat\w*|(loss of|decreased|no) appetite|
+not hungry|cough(ing)?|palpitations?|racing heart|heart racing|pounding heart|chest (pain|tightness)|breathless\w*|
+short(ness)? of breath|wheez\w*|hypo(glycaemi\w*)?|low (blood )?sugars?|shak(y|ing|es)|sweat(y|ing|s)|blurred vision|
+jaundice|yellow (skin|eyes)|injection site (reaction|pain|redness|lump)|(red|sore|painful) (lump|patch|skin)|bruis\w*|
+muscle (pain|ache|cramps?)|cramps?|pancreatitis|gallstones?|back pain|joint pain|tingling|numb(ness)?|confus(ed|ion)|
+insomnia|can'?t sleep|trouble sleeping|mood (change|swing)s?|depressed|anxious|hair (loss|falling out)|nosebleeds?|bleeding"""
+SYMPTOM_RE = re.compile(rf"\b({SYMPTOMS.replace(chr(10), '')})\b", re.I)
+# Strong context: ongoing experience while exposed. Any of these + a symptom = AE report.
+STRONG_CONTEXT_RE = re.compile(
+    r"\bsince\b|\bnow that\b|\bswitch(ed|ing)? (to|over to|onto)\b|\bevery (time|day|morning|night|week)\b|"
+    r"\bever since\b|\b(for|over) the (past|last)\b|\b(i'?m|i am|he'?s|she'?s|they'?re|is|are|been|was|were) (on|taking|using|injecting)\b|"
+    r"\bstarted (on|taking|using)?\b|\bafter (taking|starting|using|injecting)\b|\bkeep(s)? (getting|having|feeling)\b|"
+    r"\b(gets|get|getting|got|feels|feel|feeling|felt|having|has|have|had|'ve had|'s had|been)\b|\b(lately|recently|these days)\b", re.I)
+PERSONAL_RE = re.compile(
+    r"\b(i|i'?m|i'?ve|me|my|mine|he|she|he'?s|she'?s|his|her|him|they|their|husband|wife|partner|son|daughter|"
+    r"mum|mom|mother|dad|father|patient|child|baby|friend|grandmother|grandfather)\b", re.I)
+# Hypothetical question about possibility ("Can Veloxitab give me a headache?") - not a report by itself.
+HYPOTHETICAL_RE = re.compile(
+    r"^\s*(can|could|will|would|might|may|does|do|is|are|what|which|how (common|likely|often))\b"
+    r"|\b(cause|causes|side effects?|known to|likely to|risk of|chance of)\b", re.I)
+
+
+def detect_symptom_report(enquiry: str) -> str:
+    """Second AE trigger: a symptom co-occurring with personal/exposure context.
+    Returns the matched symptom, or "" if none. Kept separate so the original temporal-cue
+    pattern remains a trigger in its own right (either one raises the PV flag)."""
+    sym = SYMPTOM_RE.search(enquiry)
+    if not sym:
+        return ""
+    strong = STRONG_CONTEXT_RE.search(enquiry)
+    personal = PERSONAL_RE.search(enquiry)
+    # Judge "hypothetical" on the sentence that contains the symptom, so a question in one
+    # sentence does not mask a report in the next ("Can she keep taking it? She's been tired.").
+    sentence = next((x for x in re.split(r"(?<=[.?!])\s+", enquiry) if SYMPTOM_RE.search(x)), enquiry)
+    hypothetical = HYPOTHETICAL_RE.search(sentence)
+    if not personal:
+        return ""
+    # Personal + symptom is enough unless the enquiry is phrased as a hypothetical question,
+    # in which case we need a strong exposure cue ("since", "now that", "every time", "is on"...).
+    if hypothetical:
+        # Only experience-style cues count here; plain "have/get" appears in hypotheticals too.
+        if not re.search(r"\bsince\b|\bnow that\b|\bswitch(ed|ing)? (to|onto)\b|\bevery (time|day)\b|"
+                         r"\b(i'?m|i am|he'?s|she'?s|is|been) (on|taking|using)\b|\b(i'?ve|i have|he has|she has|has) had\b|"
+                         r"\b(keeps?|kept) (getting|having)\b|\b(got|felt|developed)\b|\b(i'?ve|he'?s|she'?s|they'?ve|has|have) been\b", sentence, re.I):
+            return ""
+    elif not strong:
+        return ""
+    return sym.group(0)
+
+
 def detect_adverse_event(enquiry: str) -> tuple[bool, bool, str]:
-    """Return (is_ae, is_serious, matched_text)."""
+    """Return (is_ae, is_serious, matched_text). Two triggers: the temporal/experience
+    pattern (PATTERNS['ae']) OR a symptom + personal/exposure context."""
     m = re.search(PATTERNS["ae"], enquiry, re.I)
-    if not m:
-        return False, False, ""
+    matched = m.group(0) if m else ""
+    if not matched:
+        sym = detect_symptom_report(enquiry)
+        if not sym:
+            return False, False, ""
+        matched = f"symptom '{sym}' in personal context"
     serious = _has("serious_ae", enquiry)
-    return True, serious, m.group(0)
+    return True, serious, matched
 
 
 @dataclass
