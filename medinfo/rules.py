@@ -62,6 +62,24 @@ DRUGS = [
     "st john's wort", "oral contraceptive", "contraceptive pill", "aliskiren", "grapefruit", "alcohol",
 ]
 
+# Common UK/US brand names -> generic, so "Nurofen" is checked as ibuprofen. Not exhaustive:
+# a brand missing from this map falls through to the low-confidence rule instead.
+BRANDS = {
+    "nurofen": "ibuprofen", "advil": "ibuprofen", "brufen": "ibuprofen", "calpol": "paracetamol",
+    "panadol": "paracetamol", "tylenol": "paracetamol", "lipitor": "atorvastatin", "zocor": "simvastatin",
+    "crestor": "rosuvastatin", "glucophage": "metformin", "ozempic": "semaglutide", "wegovy": "semaglutide",
+    "rybelsus": "semaglutide", "victoza": "liraglutide", "saxenda": "liraglutide", "trulicity": "dulaglutide",
+    "mounjaro": "tirzepatide", "lantus": "insulin", "novorapid": "insulin", "humalog": "insulin",
+    "levemir": "insulin", "priadel": "lithium", "camcolit": "lithium", "eltroxin": "levothyroxine",
+    "synthroid": "levothyroxine", "coumadin": "warfarin", "eliquis": "apixaban", "xarelto": "rivaroxaban",
+    "plavix": "clopidogrel", "prozac": "fluoxetine", "lustral": "sertraline", "zoloft": "sertraline",
+    "cipramil": "citalopram", "losec": "omeprazole", "prilosec": "omeprazole", "nexium": "esomeprazole",
+    "viagra": "sildenafil", "zithromax": "azithromycin", "klaricid": "clarithromycin", "diflucan": "fluconazole",
+    "istin": "amlodipine", "norvasc": "amlodipine", "tritace": "ramipril", "zestril": "lisinopril",
+    "cozaar": "losartan", "lasix": "furosemide", "aldactone": "spironolactone", "tegretol": "carbamazepine",
+    "epilim": "sodium valproate", "zyloric": "allopurinol", "voltarol": "diclofenac", "naprosyn": "naproxen",
+}
+
 PATTERNS = {
     "off_label_explicit": r"\boff[- ]?label\b|\bunlicen[cs]ed\b|\boutside (the |its )?licen[cs]e\b|\bnot (licen[cs]ed|indicated)\b",
     "pregnancy": r"\bpregnan\w*|\bbreast[- ]?feed\w*|\bbreast ?milk\b|\blactat\w*|\bnursing (mother|baby)\b|\btrying (to|for a) (conceive|baby)\b|\bconception\b|\bexpecting (a baby|twins)\b|\bmother[- ]to[- ]be\b",
@@ -276,10 +294,13 @@ def pre_checks(enquiry: str, retrieval: RetrievalResult, retriever: Retriever) -
 
     # Interactions: any lexicon drug named in the enquiry but absent from all approved docs for the product.
     if retrieval.products:
-        named = [d for d in DRUGS if re.search(rf"\b{re.escape(d)}\b", text)]
+        # (label shown to reviewer, generic name looked up in the approved docs)
+        named = [(d, d) for d in DRUGS if re.search(rf"\b{re.escape(d)}\b", text)]
+        named += [(f"{b} ({g})", g) for b, g in BRANDS.items()
+                  if re.search(rf"\b{re.escape(b)}\b", text) and g not in {n[1] for n in named}]
         for product in retrieval.products:
             ptext = retriever.product_text(product)
-            missing = [d for d in named if d not in ptext]
+            missing = [label for label, generic in named if generic not in ptext]
             if missing:
                 add("interaction_not_covered", f"Interaction with {', '.join(missing)} is not covered in the approved {product} documents.")
 
