@@ -9,6 +9,10 @@ made here; it can only add reasons to escalate.
 These are transparent keyword/regex rules on purpose: they are auditable and
 predictable, and they err towards escalation. Their recall limits are logged
 in NOTES.md.
+
+FROZEN at git tag `rules-frozen-heldout` (8 Nov 2026) before the held-out test set
+was written. Any later change must be reported with both the pre- and post-change
+held-out scores.
 """
 from __future__ import annotations
 
