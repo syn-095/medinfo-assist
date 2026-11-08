@@ -40,6 +40,8 @@ def citation_check_selftest(retriever: Retriever) -> bool:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--llm", action="store_true", help="use Claude (needs ANTHROPIC_API_KEY)")
+    ap.add_argument("--data", default=str(ROOT / "data" / "test_enquiries.json"),
+                    help="test set JSON (e.g. a held-out set)")
     ap.add_argument("--out", default=str(ROOT / "test_results.csv"))
     args = ap.parse_args()
 
@@ -47,7 +49,7 @@ def main():
     if args.llm and not key:
         print("--llm given but ANTHROPIC_API_KEY is not set; running offline.")
     retriever = Retriever(ROOT / "data" / "approved")
-    cases = json.loads((ROOT / "data" / "test_enquiries.json").read_text(encoding="utf-8"))
+    cases = json.loads(Path(args.data).read_text(encoding="utf-8"))
 
     rows = []
     for e in cases:
@@ -55,6 +57,8 @@ def main():
         actual = "answer" if r.decision == DRAFT_OK else "escalate"
         exp_src = e.get("expected_source")
         src_hit = (exp_src in r.retrieval.ids) if exp_src else None
+        # Cited is stricter than retrieved: only meaningful when a draft was produced.
+        src_cited = (exp_src in r.draft.citation_check.cited) if (exp_src and r.draft.mode != "not_covered") else None
         cc = r.draft.citation_check
         rows.append({
             "id": e["id"],
@@ -62,6 +66,7 @@ def main():
             "triage_ok": actual == e["expected_triage"],
             "expected_pv": e["expected_pv"], "actual_pv": r.pv_flag, "pv_ok": r.pv_flag == e["expected_pv"],
             "expected_source": exp_src or "", "source_retrieved": "" if src_hit is None else src_hit,
+            "source_cited": "" if src_cited is None else src_cited,
             "mode": r.draft.mode,
             "citation_check": "n/a" if r.draft.mode == "not_covered" else ("PASS" if cc.passed else "FAIL"),
             "cited": "; ".join(cc.cited),
@@ -71,15 +76,16 @@ def main():
         })
 
     # ---- Table ----
-    hdr = f"{'ID':<4} {'Expected':<9} {'Actual':<9} {'OK':<3} {'PV exp/act':<11} {'Src':<4} {'Cite':<5} Rules fired"
+    hdr = f"{'ID':<4} {'Expected':<9} {'Actual':<9} {'OK':<3} {'PV exp/act':<11} {'Ret':<4} {'Cit':<4} {'Check':<5} Rules fired"
     print(hdr)
     print("-" * len(hdr) + "-" * 30)
     yn = lambda b: "Y" if b else "N"
     for x in rows:
         src = "-" if x["source_retrieved"] == "" else yn(x["source_retrieved"])
+        cit = "-" if x["source_cited"] == "" else yn(x["source_cited"])
         ok = "✓" if (x["triage_ok"] and x["pv_ok"]) else "✗"
         print(f"{x['id']:<4} {x['expected_triage']:<9} {x['actual_triage']:<9} {ok:<3} "
-              f"{yn(x['expected_pv'])}/{yn(x['actual_pv']):<9} {src:<4} {x['citation_check']:<5} {x['rules_fired']}")
+              f"{yn(x['expected_pv'])}/{yn(x['actual_pv']):<9} {src:<4} {cit:<4} {x['citation_check']:<5} {x['rules_fired']}")
 
     # ---- Summary ----
     n = len(rows)
@@ -89,15 +95,19 @@ def main():
     cc_ok = sum(x["citation_check"] == "PASS" for x in drafted)
     src_rows = [x for x in rows if x["source_retrieved"] != ""]
     src_ok = sum(bool(x["source_retrieved"]) for x in src_rows)
+    cit_rows = [x for x in rows if x["source_cited"] != ""]
+    cit_ok = sum(bool(x["source_cited"]) for x in cit_rows)
+    cit_miss = [x["id"] for x in cit_rows if not x["source_cited"]]
     missed_esc = [x["id"] for x in rows if x["expected_triage"] == "escalate" and x["actual_triage"] == "answer"]
     over_esc = [x["id"] for x in rows if x["expected_triage"] == "answer" and x["actual_triage"] == "escalate"]
     print()
-    print(f"Mode: {'Claude' if key else 'offline extractive'}")
+    print(f"Test set: {Path(args.data).name} ({n} cases) · Mode: {'Claude' if key else 'offline extractive'}")
     print(f"Triage correct:          {t_ok}/{n}")
     print(f"  Missed escalations:    {len(missed_esc)} {missed_esc}   <- the safety-critical error")
     print(f"  Over-escalations:      {len(over_esc)} {over_esc}")
     print(f"PV flag correct:         {pv_ok}/{n}")
     print(f"Expected source in top-k:{src_ok}/{len(src_rows)}")
+    print(f"Expected source cited:   {cit_ok}/{len(cit_rows)} drafted {cit_miss}")
     print(f"Citation check passed:   {cc_ok}/{len(drafted)} drafted responses")
     print(f"Citation check self-test (catches fake/unretrieved/missing citations and wrong figures): "
           f"{'PASS' if citation_check_selftest(retriever) else 'FAIL'}")
