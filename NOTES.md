@@ -64,28 +64,48 @@ Also a build-process failure worth noting: one scripted edit wrote literal backs
 
 **Backends** (`medinfo/llm.py`; selection: explicit `--backend` > `ANTHROPIC_API_KEY` → `api` > `MEDINFO_BACKEND=claude_cli` → `claude_cli` > `extractive`):
 - `api`: Anthropic Messages API. **This is the production path**, with an enterprise agreement and data-retention controls (zero-retention / no-training terms, regional processing as required), never a personal account.
-- `claude_cli`: Claude Code headless (`claude -p`) on William's Claude subscription. **Development evaluation only**, so the LLM path could be tested without an API key. Isolation: default system prompt replaced (`--system-prompt-file`), all tools disabled (`--tools ""`), MCP dropped (`--strict-mcp-config`), no settings sources, skills off, no session persistence, and cwd = a fresh empty temp dir (no project files or CLAUDE.md). The init event is checked on every call and the reply is refused if any tool or MCP server is present. The model alias `sonnet` resolved to `claude-sonnet-5` (this CLI version rejected the full `claude-sonnet-5-5` ID), so the CLI results are for a slightly different model than the API path would use. **Latency via the CLI is not representative** (process start-up and session overhead each call, roughly 8-20 s per call here); don't quote it as product latency.
+- `claude_cli`: Claude Code headless (`claude -p`) on William's Claude subscription. **Development evaluation only**, so the LLM path could be tested without an API key. Isolation: default system prompt replaced (`--system-prompt-file`), all tools disabled (`--tools ""`), MCP dropped (`--strict-mcp-config`), no settings sources, skills off, no session persistence, and cwd = a fresh empty temp dir (no project files or CLAUDE.md). The init event is checked on every call and the reply is refused if any tool or MCP server is present. **Model identity (corrected):** this CLI version (2.1.260) rejects the full `claude-sonnet-5-5` ID, so the CLI uses the alias `sonnet`, which is resolved server-side. In every test_enquiries.json run in this session the CLI's init event *and* the billed `modelUsage` reported `claude-sonnet-5` (checked again on 8 Nov: 55/55 calls). But a held-out run reported `claude-sonnet-5-5`, so **the alias does not resolve to a fixed model across runs.** An earlier version of these notes stated it as a single fact, which was wrong. The model is now recorded per call (init event cross-checked against `modelUsage`) in `draft_model` / `classifier_model` in the results CSV, and the run summary lists every model seen with counts. Compare runs only when their recorded models match; the API path pins `claude-sonnet-5-5` explicitly. **Latency via the CLI is not representative** (process start-up and session overhead each call, roughly 8-20 s per call here); don't quote it as product latency.
 - `extractive`: no LLM. **The hosted Streamlit demo runs in this mode** (the regex floor plus verbatim extraction), so assessors can use it without a key and no enquiry text leaves the app.
 - **Residual isolation gap:** Claude Code still injects a small account-context block (the subscriber's email address) into every call; only `--bare` removes it, and `--bare` requires an API key. Acceptable for synthetic data in development; another reason the CLI is not a deployment path.
 - **AI self-report vs harness truth:** asked what tools it had in the isolated session, the model confidently listed Bash, Read, Write, WebSearch… The init event showed `tools: []`. Lesson: verify isolation from what the harness reports, never from the model's description of itself.
 
 **Observations from the first live `claude_cli` call** (E26, rash): the draft was grounded and the citation check passed, but its last sentence ("This information… does not constitute an assessment of this individual patient's case…") carried a §4.8 citation that does not support it. The prompt's "cite every sentence" rule pushes the model to attach citations to boilerplate ("citation laundering"). The numeric grounding check cannot catch non-numeric claims. Possible fixes: allow an explicit uncited disclaimer class, or add a lexical-overlap or NLI-style support check per sentence.
 
-### `claude_cli` run on test_enquiries.json (8 Nov, model claude-sonnet-5, rules frozen)
+### `claude_cli` runs on test_enquiries.json (8 Nov, recorded model claude-sonnet-5, rules frozen)
 
 **First attempt was invalid and was discarded:** 19/30 classifier calls and 14 drafting calls failed with `WinError 32`. The CLI calls succeeded, but deleting the temp dir on Windows failed while the `claude` process still held a handle, and that exception threw away a good reply. **The fail-safe worked as designed:** every failure fell back to the regex floor and extractive drafting, with 0 missed escalations. Fixed (`ignore_cleanup_errors=True`), plus a grounding false-fail where a doc ID written in prose ("VLX-SMPC-001") was read as the value "001". Then re-run.
 
-| Metric | Regex floor alone | Merged (regex + LLM) |
-|---|---|---|
-| Triage correct | 29/30 | **26/30** |
-| Missed escalations | 0 | **0** |
-| Over-escalations | 1 (E08) | 4 (E02, E03, E08, E10) |
-| PV flag correct | 29/30 | **27/30** |
-| Expected source cited | – | **23/23** (LLM cites §4.9 for E19, which extractive missed) |
-| Citation check passed | – | 22/25 drafted |
-| Classifier errors / draft fallbacks | – | 0 / 0 |
+#### Current training-set numbers (final build: new layer attribution + source-tag fix)
 
-(The regex-floor column differs from the offline 30/30 because E08's draft here is the LLM's, which triggered `no_supporting_source`, a post-check.)
+The earlier "regex floor alone" column was misleading: it was `triage(pre + post)`, and `post` checks the LLM's draft, so it wasn't a pure regex floor. Attribution is now split three ways: **rules_pre** (regex/lexicon on the enquiry only), **draft_checks** (post-checks on whatever draft was produced: citations, grounding, coverage, prohibited claims) and **llm_classifier**. "LLM-only catch" = an escalation neither rules layer raised. Caveat: when a rules_pre hit blocks drafting, the fixed "not covered" text also trips the draft check, so those cases show as "several"; the draft check there is a consequence of the rules, not an independent catch.
+
+| Metric (test_enquiries.json, 30) | Offline (extractive) | claude_cli: rules_pre only | claude_cli: rules_pre + draft_checks | claude_cli: final (merged) |
+|---|---|---|---|---|
+| Triage correct | 30/30 | 30/30 | 30/30 | **27/30** |
+| Missed escalations | 0 | 0 | 0 | **0** |
+| Over-escalations | 0 | 0 | 0 | 3 (E02, E03, E10), all LLM-added |
+| PV flag correct | 29/30 (E23 label) | – | – | **26/30** (regex alone 29/30) |
+| Expected source cited | 22/23 (E19) | – | – | **23/23** |
+| Citation check passed | 25/25 | – | – | 22/25 |
+| LLM-only catches | – | – | – | **0** triage, **0** PV |
+| LLM-added PV false positives | – | – | – | E10 (missed dose → "medication error"), E14, E17 |
+
+claude_cli run: 55/55 calls on `claude-sonnet-5`, 0 classifier errors, 0 draft fallbacks, wall 101 s.
+
+- **E08 after the source-tag fix:** now drafted, citation check PASS, triaged correctly (previously refused as "not about Veloxitab" → over-escalation). This confirms it was a harness bug.
+- **Run-to-run variation in the LLM layer:** compared with the previous claude_cli run, E10 newly gained a PV `medication_error` flag (missing a dose is not a medication error) and E27 lost its spurious `medication_error`. Same prompts, same model. LLM flags are not deterministic, which is another reason the deterministic floor matters.
+- **Citation / grounding failures in this run:** E17 "…no dosing recommendation can be given for a **12**-year-old patient…" (age taken from the enquiry: a false-fail); E19 "Each Veloxitab 20 mg tablet contains 20 mg of velorastat, so four tablets would be a total of **80 mg**" (a figure the model *calculated*. The grounding check is right to stop it: a derived dose isn't in an approved source and must be checked by a human); E25 uncited coverage statement ("No general statement on whether such pain is 'normal' is provided in the source information…").
+
+*The table and observations below are from the previous claude_cli run (before the attribution split and the source-tag fix), kept for the record.*
+
+| Metric (previous run) | "Regex floor" (actually pre + draft checks) | Merged |
+|---|---|---|
+| Triage correct | 29/30 | 26/30 |
+| Missed escalations | 0 | 0 |
+| Over-escalations | 1 (E08) | 4 (E02, E03, E08, E10) |
+| PV flag correct | 29/30 | 27/30 |
+| Expected source cited | – | 23/23 |
+| Citation check passed | – | 22/25 drafted |
 
 **LLM-only catches: none** (triage 0, PV 0). Expected on this set, since the regex was tuned on these 30 enquiries. Whether the LLM layer earns its place can only be shown on the held-out set.
 
@@ -104,7 +124,17 @@ Also a build-process failure worth noting: one scripted edit wrote literal backs
 
 **Latency:** median 13.9 s per case (two CLI calls in parallel per case, 4 cases at once; wall 103 s for 30). Not representative of the API.
 
-**Candidate fixes (not applied: they would be tuned on this same set):** (1) put the product and active substance in each `<source>` tag; (2) let the grounding check accept non-dose numbers (ages) that appear in the enquiry; (3) allow an uncited "coverage statement" sentence class; (4) tighten the classifier's `patient_specific` definition (a general FAQ asked in the first person is not patient-specific) and repeat the hypothetical exclusion for special situations. Validate any of these on the held-out set, not this one.
+**Candidate fixes (not applied: they would be tuned on this same set):** (1) put the product and active substance in each `<source>` tag; (2) let the grounding check accept non-dose numbers (ages) that appear in the enquiry; (3) allow an uncited "coverage statement" sentence class; (4) tighten the classifier's `patient_specific` definition (a general FAQ asked in the first person is not patient-specific) and repeat the hypothetical exclusion for special situations. Validate any of these on the held-out set, not this one. **Update:** (1) was applied as a harness fix (product and substance in every source tag; E08 resolved). (2)–(4) remain unapplied.
+
+## Held-out findings (reported by William; held-out data not viewed in this session)
+
+The held-out set (`data/heldout.json`) was written outside this session, and neither it nor its results files were opened here. These findings are as William reported them, in general terms, and **no fix was tuned on them**:
+
+- **Lay-language retrieval gap.** An everyday symptom word that isn't in the synonym lexicon failed to retrieve the side-effects section. The LLM draft then correctly said the sources didn't cover it, and the case was escalated: fail-safe, but an over-escalation. Fix **not applied**, to avoid fitting the held-out set. Next step: a much larger lay-term lexicon (e.g. built from MedDRA lowest-level terms and patient-forum vocabulary) or embedding / hybrid retrieval, so lay wording finds label wording without hand-written synonyms.
+- **Offline mode can pass the citation check while quoting irrelevant sections.** Every citation is real and was retrieved, but the quoted sentences don't answer the question. **The citation check proves provenance, not relevance.** Relevance is covered by the human reviewer, which is why the officer must read every draft and offline coverage is always marked PARTIAL. Worth saying explicitly in the deck: the automated checks guarantee *traceability*; *usefulness* is the MI officer's judgement.
+- **The uncited "coverage statement" appeared again on held-out** ("the sources do not contain X"), as predicted from the training run. Candidate fix 3 (an explicit uncited coverage-statement class) is still not applied; it is harmless today because those cases escalate anyway, but it adds noise for reviewers.
+
+**Build frozen** after this commit: no new features or rule changes. Remaining work is evaluation reporting, the deck and the README.
 
 ## Assumptions
 
