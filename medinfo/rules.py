@@ -94,6 +94,20 @@ def _ages(text: str) -> list[int]:
     return out
 
 
+def find_conditions(text: str) -> list[str]:
+    """All CONDITIONS mentioned in text. Longest terms are matched first and their
+    span is masked, so "type 1 diabetes" or "pre-diabetes" is not also read as "diabetes".
+    Plurals are accepted ("migraines")."""
+    text = text.lower()
+    found = []
+    for cond in sorted(CONDITIONS, key=len, reverse=True):
+        pat = rf"(?<![\w-]){re.escape(cond)}s?(?![\w-])"
+        if re.search(pat, text):
+            found.append(cond)
+            text = re.sub(pat, lambda m: "#" * len(m.group(0)), text)
+    return found
+
+
 def detect_adverse_event(enquiry: str) -> tuple[bool, bool, str]:
     """Return (is_ae, is_serious, matched_text)."""
     m = re.search(PATTERNS["ae"], enquiry, re.I)
@@ -118,17 +132,15 @@ def pre_checks(enquiry: str, retrieval: RetrievalResult, retriever: Retriever) -
     if _has("off_label_explicit", enquiry):
         add("off_label", "Enquiry refers to off-label / unlicensed use.")
     else:
+        found = find_conditions(text)
         for product in retrieval.products:
-            ind = PRODUCT_RULES.get(product, {}).get("indication_terms", [])
-            # Longest match first so "type 1 diabetes" is not read as "diabetes".
-            found = None
-            for cond in sorted(CONDITIONS, key=len, reverse=True):
-                if re.search(rf"\b{re.escape(cond)}\b", text):
-                    found = cond
-                    break
-            if found and not any(found == t or found.endswith(t) and found != "type 1 diabetes" for t in ind):
-                add("off_label", f"Possible off-label use: '{found}' is not an approved indication for {product}.")
-                break
+            ind = set(PRODUCT_RULES.get(product, {}).get("indication_terms", []))
+            # Every condition mentioned must be an approved indication (exact term match).
+            # Errs to the safe side: a comorbidity mentioned in passing also escalates.
+            off = [c for c in found if c not in ind]
+            if off:
+                add("off_label", f"Possible off-label use: {', '.join(repr(c) for c in off)} "
+                                 f"not an approved indication for {product}.")
         if re.search(r"\b(don'?t|do not|doesn'?t|does not) have diabetes\b|\bnot diabetic\b|\bnon-?diabetic\b", text):
             if not any(h.code == "off_label" for h in hits):
                 add("off_label", "Use in a non-diabetic person is outside the approved indication.")
