@@ -91,7 +91,11 @@ def main():
     if backend == "api" and not key:
         sys.exit("--backend api needs ANTHROPIC_API_KEY")
     retriever = Retriever(ROOT / "data" / "approved")
-    cases = json.loads(Path(args.data).read_text(encoding="utf-8"))
+    data_path = Path(args.data)
+    if not data_path.is_file():
+        found = ", ".join(p.name for p in (ROOT / "data").glob("*.json")) or "none"
+        sys.exit(f"Test set not found: {data_path}\nJSON files in data/: {found}")
+    cases = json.loads(data_path.read_text(encoding="utf-8"))
 
     t0 = time.monotonic()
     with ThreadPoolExecutor(max_workers=max(1, args.workers)) as pool:
