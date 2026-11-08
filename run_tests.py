@@ -25,12 +25,16 @@ sys.stdout.reconfigure(encoding="utf-8")  # § and ✓ on Windows consoles
 
 def citation_check_selftest(retriever: Retriever) -> bool:
     """The check must catch a citation to a section that was not retrieved."""
-    retrieved = {"VLX-SMPC-001 §4.2"}
-    good = check_citations("The starting dose is 10 mg once daily. [VLX-SMPC-001 §4.2]", retrieved)
-    fake = check_citations("The starting dose is 10 mg once daily. [VLX-SMPC-001 §4.6]", retrieved)
-    made_up = check_citations("Veloxitab is safe in pregnancy. [VLX-SMPC-001 §9.9]", retrieved)
-    uncited = check_citations("The starting dose is 10 mg once daily.", retrieved)
-    return good.passed and not fake.passed and not made_up.passed and not uncited.passed
+    texts = {"VLX-SMPC-001 §4.2": retriever.by_id["VLX-SMPC-001 §4.2"].text}
+    retrieved = set(texts)
+    good = check_citations("The starting dose is 10 mg once daily. [VLX-SMPC-001 §4.2]", retrieved, texts)
+    fake = check_citations("The starting dose is 10 mg once daily. [VLX-SMPC-001 §4.6]", retrieved, texts)
+    made_up = check_citations("Veloxitab is safe in pregnancy. [VLX-SMPC-001 §9.9]", retrieved, texts)
+    uncited = check_citations("The starting dose is 10 mg once daily.", retrieved, texts)
+    # Real, retrieved citation but a wrong figure: must fail the grounding check.
+    wrong_dose = check_citations("The maximum dose is 40 mg once daily. [VLX-SMPC-001 §4.2]", retrieved, texts)
+    return (good.passed and not fake.passed and not made_up.passed and not uncited.passed
+            and not wrong_dose.passed and bool(wrong_dose.ungrounded))
 
 
 def main():
@@ -95,7 +99,7 @@ def main():
     print(f"PV flag correct:         {pv_ok}/{n}")
     print(f"Expected source in top-k:{src_ok}/{len(src_rows)}")
     print(f"Citation check passed:   {cc_ok}/{len(drafted)} drafted responses")
-    print(f"Citation check self-test (catches fake/unretrieved/missing citations): "
+    print(f"Citation check self-test (catches fake/unretrieved/missing citations and wrong figures): "
           f"{'PASS' if citation_check_selftest(retriever) else 'FAIL'}")
 
     with open(args.out, "w", newline="", encoding="utf-8") as f:

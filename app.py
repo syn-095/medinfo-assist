@@ -103,7 +103,7 @@ def workbench():
         if res.draft.note:
             st.caption(res.draft.note)
         edited = st.text_area("Review and edit the draft", value=res.draft.text, height=260, key=f"draft_{case_id}")
-        cc = check_citations(edited, res.retrieval.ids) if edited != res.draft.text else res.draft.citation_check
+        cc = check_citations(edited, res.retrieval.ids, res.retrieval.texts) if edited != res.draft.text else res.draft.citation_check
         if res.draft.mode == "not_covered":
             st.info("No draft generated: the approved documents do not support an answer.")
         elif cc.passed:
@@ -116,9 +116,13 @@ def workbench():
                 msg.append("contains no citations")
             if cc.uncited_sentences:
                 msg.append(f"{len(cc.uncited_sentences)} uncited sentence(s)")
+            if cc.ungrounded:
+                msg.append(f"{len(cc.ungrounded)} sentence(s) with figures not found in the cited section")
             st.error("Citation check FAILED: " + "; ".join(msg))
             for s in cc.uncited_sentences:
                 st.caption(f"Uncited: “{s}”")
+            for s in cc.ungrounded:
+                st.caption(f"Not in cited source: {s}")
 
     with right:
         st.markdown("**Retrieved approved sources**")

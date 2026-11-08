@@ -99,6 +99,10 @@ class RetrievalResult:
     def ids(self) -> set[str]:
         return {h.chunk.chunk_id for h in self.hits}
 
+    @property
+    def texts(self) -> dict[str, str]:
+        return {h.chunk.chunk_id: h.chunk.text for h in self.hits}
+
 
 def _parse_doc(path: Path) -> list[Chunk]:
     text = path.read_text(encoding="utf-8")

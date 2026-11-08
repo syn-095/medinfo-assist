@@ -197,6 +197,9 @@ def post_checks(draft_text: str, coverage: str, citation_check) -> list[RuleHit]
             add("citation_check_failed", "Draft makes statements but contains no citations.")
         if citation_check.uncited_sentences:
             add("uncited_statements", f"{len(citation_check.uncited_sentences)} sentence(s) in the draft have no citation.")
+        if citation_check.ungrounded:
+            add("ungrounded_values", "Figures in the draft do not appear in the section they cite: "
+                                     + "; ".join(citation_check.ungrounded))
     if re.search(PATTERNS["prohibited_claims"], draft_text or "", re.I):
         add("prohibited_claim", "Draft contains promotional or absolute claim language (e.g. 'cure', 'guaranteed', 'better than').")
     return hits

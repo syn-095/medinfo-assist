@@ -46,6 +46,7 @@ class CitationCheck:
     cited: list[str] = field(default_factory=list)
     invalid: list[str] = field(default_factory=list)           # cited but not retrieved
     uncited_sentences: list[str] = field(default_factory=list)
+    ungrounded: list[str] = field(default_factory=list)       # values not found in the cited chunk
 
 
 @dataclass
@@ -64,7 +65,45 @@ def split_sentences(text: str) -> list[str]:
     return [p.strip(" -•") for p in parts if p.strip(" -•")]
 
 
-def check_citations(draft_text: str, retrieved_ids: set[str]) -> CitationCheck:
+UNITS = r"mg|mcg|µg|g|ml|mmol|mol|°c|%|hours?|days?|weeks?|months?|years?|litres?|liters?|ml/min|times"
+VALUE_RE = re.compile(rf"(?<![\w.])(\d+(?:[.,]\d+)?)(?:\s*({UNITS})(?![a-z]))?", re.I)
+
+
+def _norm(text: str) -> str:
+    """Lower-case, unify dashes, drop thousands commas and number-unit spaces ("10 mg" -> "10mg")."""
+    t = text.lower().replace("–", "-").replace("—", "-")
+    t = re.sub(r"(?<=\d),(?=\d{3}\b)", "", t)
+    t = re.sub(rf"(\d)\s+({UNITS})(?![a-z])", r"\1\2", t, flags=re.I)
+    return re.sub(r"\s+", " ", t)
+
+
+def _cites_in(sentence: str) -> list[str]:
+    return [f"{d} §{s}" for b in BRACKET_RE.findall(sentence) for d, s in CITE_RE.findall(b)]
+
+
+def ungrounded_values(sentence: str, chunk_texts: dict[str, str]) -> list[str]:
+    """Numbers / doses / units in `sentence` that do not appear in any chunk the sentence cites.
+    Grounding is checked per sentence: a value cited to §4.2 must be in §4.2's text."""
+    cites = [c for c in _cites_in(sentence) if c in chunk_texts]
+    body = BRACKET_RE.sub(" ", sentence)  # citation IDs/section numbers are not claims
+    source = " ".join(_norm(chunk_texts[c]) for c in cites)
+    missing = []
+    for m in VALUE_RE.finditer(body):
+        num, unit = m.group(1).replace(",", ""), (m.group(2) or "").lower()
+        if unit:
+            ok = re.search(rf"(?<![\d.]){re.escape(num + unit)}", source) is not None
+        else:
+            ok = re.search(rf"(?<![\d.]){re.escape(num)}(?![\d])", source) is not None
+        if not ok:
+            missing.append(m.group(0).strip())
+    return missing
+
+
+def check_citations(draft_text: str, retrieved_ids: set[str],
+                    chunk_texts: dict[str, str] | None = None) -> CitationCheck:
+    """Three checks: (1) every cited ID was retrieved; (2) every sentence carries a citation;
+    (3) if chunk_texts is given, every number/dose/unit in a sentence appears in a chunk that
+    sentence cites (grounding). (3) catches a real, retrieved citation attached to a wrong figure."""
     cited: list[str] = []
     for bracket in BRACKET_RE.findall(draft_text):
         for doc_id, sec in CITE_RE.findall(bracket):
@@ -72,9 +111,18 @@ def check_citations(draft_text: str, retrieved_ids: set[str]) -> CitationCheck:
             if cid not in cited:
                 cited.append(cid)
     invalid = [c for c in cited if c not in retrieved_ids]
-    uncited = [s for s in split_sentences(draft_text) if not BRACKET_RE.search(s) and len(s.split()) > 3]
-    return CitationCheck(passed=not invalid and bool(cited) and not uncited,
-                         cited=cited, invalid=invalid, uncited_sentences=uncited)
+    sentences = split_sentences(draft_text)
+    uncited = [s for s in sentences if not BRACKET_RE.search(s) and len(s.split()) > 3]
+    ungrounded = []
+    if chunk_texts is not None:
+        for s in sentences:
+            if BRACKET_RE.search(s):
+                bad = ungrounded_values(s, chunk_texts)
+                if bad:
+                    ungrounded.append(f"{', '.join(bad)} ← “{BRACKET_RE.sub('', s).strip()[:90]}”")
+    return CitationCheck(passed=not invalid and bool(cited) and not uncited and not ungrounded,
+                         cited=cited, invalid=invalid, uncited_sentences=uncited,
+                         ungrounded=ungrounded)
 
 
 def _not_covered(note: str) -> Draft:
@@ -104,7 +152,7 @@ def extractive_draft(enquiry: str, retrieval: RetrievalResult, retriever: Retrie
     best.sort(key=lambda x: (x[1], x[2]))  # keep document order
     lines = [f"{sent} [{cid}]" for _, _, _, sent, cid in best]
     text = "\n".join(f"- {l}" for l in lines)
-    return Draft(text, "extractive", "PARTIAL", check_citations(text, retrieval.ids),
+    return Draft(text, "extractive", "PARTIAL", check_citations(text, retrieval.ids, retrieval.texts),
                  note="Offline extractive mode: verbatim sentences from the top retrieved approved sections. "
                       "Coverage is marked PARTIAL because extraction cannot judge completeness; the officer must check it answers the question.")
 
@@ -138,9 +186,9 @@ def llm_draft(enquiry: str, retrieval: RetrievalResult, api_key: str) -> Draft:
     raw = "".join(b.text for b in msg.content if getattr(b, "type", "") == "text")
     coverage, text = parse_llm_output(raw)
     if coverage == "NONE":
-        return Draft(text or NOT_COVERED_TEXT, "llm", "NONE", check_citations(text, retrieval.ids),
+        return Draft(text or NOT_COVERED_TEXT, "llm", "NONE", check_citations(text, retrieval.ids, retrieval.texts),
                      note="Claude reported that the sources do not cover the question.")
-    return Draft(text, "llm", coverage, check_citations(text, retrieval.ids), note=f"Generated by {MODEL}.")
+    return Draft(text, "llm", coverage, check_citations(text, retrieval.ids, retrieval.texts), note=f"Generated by {MODEL}.")
 
 
 def generate(enquiry: str, retrieval: RetrievalResult, retriever: Retriever,
