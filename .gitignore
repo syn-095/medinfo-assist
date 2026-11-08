@@ -3,5 +3,5 @@
 .venv/
 .streamlit/secrets.toml
 audit_log.csv
-test_results.csv
+test_results*.csv
 audit_log.archived-*.csv

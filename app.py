@@ -15,6 +15,7 @@ import streamlit as st
 
 from medinfo import audit, rules
 from medinfo.generate import MODEL, check_citations
+from medinfo.llm import select_backend
 from medinfo.pipeline import process
 from medinfo.retrieval import Retriever
 
@@ -55,12 +56,17 @@ with st.sidebar:
     page = st.radio("View", ["Enquiry workbench", "Audit log", "Approved documents"])
     st.divider()
     reviewer = st.text_input("Reviewer (MI officer)", value="MI Officer 1")
-    if api_key:
-        st.success(f"Drafting mode: Claude ({MODEL})")
-        use_llm = st.toggle("Use Claude for drafting", value=True)
+    auto_backend = select_backend(None, api_key)
+    if auto_backend == "extractive":
+        backend = "extractive"
+        st.info("Backend: **offline extractive** (no LLM). Deterministic rules, citation check and audit "
+                "work as normal; the LLM safety classifier is off.")
     else:
-        st.info("Drafting mode: **offline extractive** (no API key set). Rules, citation check and audit work as normal.")
-        use_llm = False
+        label = {"api": f"Anthropic API ({MODEL})", "claude_cli": "Claude Code CLI (dev evaluation only)"}
+        use_llm = st.toggle(f"Use LLM: {label[auto_backend]}", value=True,
+                            help="Drafting + LLM safety classifier. The classifier can only add flags, never remove them.")
+        backend = auto_backend if use_llm else "extractive"
+        (st.success if use_llm else st.info)(f"Backend: **{backend}**")
     st.caption("Nothing is ever sent to an enquirer automatically. Every response needs human sign-off.")
 
 
@@ -75,7 +81,7 @@ def workbench():
 
     if st.button("Process enquiry", type="primary", disabled=not enquiry.strip()):
         with st.spinner("Retrieving approved sources, checking rules, drafting..."):
-            res = process(enquiry.strip(), retriever, api_key if use_llm else None)
+            res = process(enquiry.strip(), retriever, api_key, backend=backend)
         case_id = audit.new_case_id()
         audit.log_event(AUDIT_PATH, case_id, "SYSTEM_DRAFT", res, reviewer="system")
         st.session_state.update(result=res, case_id=case_id, actioned=False)
@@ -99,6 +105,10 @@ def workbench():
     with st.expander("Triage reasons", expanded=escalate):
         for r in res.reasons:
             st.markdown(f"- {r}")
+    ls = res.llm_safety
+    layer_txt = ", ".join(f"{k}: {v}" for k, v in sorted(res.layers.items())) or "no flags"
+    st.caption(f"Backend: `{res.backend}` · LLM safety classifier: {ls.status if ls else 'n/a'} · "
+               f"caught by: {layer_txt}")
 
     left, right = st.columns([3, 2])
     with left:
