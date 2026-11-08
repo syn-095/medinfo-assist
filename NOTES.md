@@ -71,6 +71,41 @@ Also a build-process failure worth noting: one scripted edit wrote literal backs
 
 **Observations from the first live `claude_cli` call** (E26, rash): the draft was grounded and the citation check passed, but its last sentence ("This information… does not constitute an assessment of this individual patient's case…") carried a §4.8 citation that does not support it. The prompt's "cite every sentence" rule pushes the model to attach citations to boilerplate ("citation laundering"). The numeric grounding check cannot catch non-numeric claims. Possible fixes: allow an explicit uncited disclaimer class, or add a lexical-overlap or NLI-style support check per sentence.
 
+### `claude_cli` run on test_enquiries.json (8 Nov, model claude-sonnet-5, rules frozen)
+
+**First attempt was invalid and was discarded:** 19/30 classifier calls and 14 drafting calls failed with `WinError 32`. The CLI calls succeeded, but deleting the temp dir on Windows failed while the `claude` process still held a handle, and that exception threw away a good reply. **The fail-safe worked as designed:** every failure fell back to the regex floor and extractive drafting, with 0 missed escalations. Fixed (`ignore_cleanup_errors=True`), plus a grounding false-fail where a doc ID written in prose ("VLX-SMPC-001") was read as the value "001". Then re-run.
+
+| Metric | Regex floor alone | Merged (regex + LLM) |
+|---|---|---|
+| Triage correct | 29/30 | **26/30** |
+| Missed escalations | 0 | **0** |
+| Over-escalations | 1 (E08) | 4 (E02, E03, E08, E10) |
+| PV flag correct | 29/30 | **27/30** |
+| Expected source cited | – | **23/23** (LLM cites §4.9 for E19, which extractive missed) |
+| Citation check passed | – | 22/25 drafted |
+| Classifier errors / draft fallbacks | – | 0 / 0 |
+
+(The regex-floor column differs from the offline 30/30 because E08's draft here is the LLM's, which triggered `no_supporting_source`, a post-check.)
+
+**LLM-only catches: none** (triage 0, PV 0). Expected on this set, since the regex was tuned on these 30 enquiries. Whether the LLM layer earns its place can only be shown on the held-out set.
+
+**LLM-added errors (all on the cautious side, which the add-only design guarantees):**
+- Over-escalation via `patient_specific`: E02 (split tablet), E03 (missed dose), E10 (missed injection). The classifier treats any first-person question as a request for individual advice, even when it is a standard FAQ.
+- PV false positives via special situations: E14 ("Can I use Corvanex for weight loss?" → `off_label_use`) and E17 (dose for a 12-year-old → `paediatric_use`). Both are hypothetical questions, which the prompt says are not special situations; the model applied that inconsistently. E17 is arguably defensible (an HCP asking about a real child).
+- Other LLM-only flags that didn't change outcomes: E19 and E27 `patient_specific`; E27 `medication_error` (adding Corvanex to insulin is not a medication error).
+
+**Every citation / grounding failure (the full sentence):**
+- E17, ungrounded value "12": "Therefore, no dosing recommendation can be provided for a 12-year-old patient, and this enquiry…". The number comes from the *enquiry*, not a claim, so this is a false-fail.
+- E18, ungrounded value "88": "The source does not provide a specific starting dose recommendation for an 88-year-old patient…". The same false-fail.
+- E27, uncited sentence: "The sources do not provide guidance on individual patient dose adjustment or specific management steps for this case, and this enquiry should be reviewed by a medical expert before any patient-specific advice is given." A statement about what the sources lack, which legitimately has nothing to cite.
+- None of the three was a hallucinated fact; all three cases were escalated anyway by other rules.
+
+**E08 (over-escalation, not LLM-classifier-related):** the retrieved §4.3 text only says "velorastat"; the product name is in §1 and the doc title, which the source blocks don't pass. Claude refused ("does not contain information on a product named Veloxitab") → `no_supporting_source`. It failed safe, but it's a harness gap: the source blocks should carry the product name and active substance.
+
+**Latency:** median 13.9 s per case (two CLI calls in parallel per case, 4 cases at once; wall 103 s for 30). Not representative of the API.
+
+**Candidate fixes (not applied: they would be tuned on this same set):** (1) put the product and active substance in each `<source>` tag; (2) let the grounding check accept non-dose numbers (ages) that appear in the enquiry; (3) allow an uncited "coverage statement" sentence class; (4) tighten the classifier's `patient_specific` definition (a general FAQ asked in the first person is not patient-specific) and repeat the hypothetical exclusion for special situations. Validate any of these on the held-out set, not this one.
+
 ## Assumptions
 
 - Enquiries are in English, free text, one enquiry per submission.
