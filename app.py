@@ -91,6 +91,9 @@ def workbench():
     if res.pv_flag:
         st.error(f"⚠️ **PHARMACOVIGILANCE FLAG**: {res.pv_reason}")
 
+    if res.quality_flag:
+        st.error(f"🧪 **PRODUCT QUALITY COMPLAINT**: {res.quality_reason}")
+
     escalate = res.decision == rules.ESCALATE
     (st.warning if escalate else st.success)(f"**Triage: {res.decision}**")
     with st.expander("Triage reasons", expanded=escalate):
@@ -146,13 +149,14 @@ def workbench():
     pv_ok = True
     if res.pv_flag:
         pv_ok = st.checkbox("I have forwarded this enquiry to pharmacovigilance (required before any action).")
+    if res.quality_flag:
+        qa_ok = st.checkbox("I have forwarded this enquiry to Quality Assurance (required before any action).")
+        pv_ok = pv_ok and qa_ok
     comment = st.text_input("Reviewer comment (required to escalate or to approve edited text)")
     edited_changed = edited.strip() != res.draft.text.strip()
 
-    if res.pv_flag and pv_ok:
-        comment_logged = "[PV referral confirmed by reviewer] " + comment
-    else:
-        comment_logged = comment
+    prefix = ("[PV referral confirmed by reviewer] " if res.pv_flag and pv_ok else "") +              ("[QA referral confirmed by reviewer] " if res.quality_flag and pv_ok else "")
+    comment_logged = prefix + comment
 
     c1, c2, c3 = st.columns(3)
     can_approve = pv_ok and not escalate and res.draft.mode != "not_covered"
@@ -175,7 +179,7 @@ def workbench():
     if escalate:
         st.caption("Approval is disabled: the rules engine requires medical expert review for this case.")
     elif not pv_ok:
-        st.caption("Confirm the pharmacovigilance referral first.")
+        st.caption("Confirm the pharmacovigilance / quality referral first.")
 
 
 # ---------------- Audit log ----------------

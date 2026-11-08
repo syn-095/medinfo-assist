@@ -9,7 +9,7 @@ from pathlib import Path
 
 COLUMNS = [
     "timestamp_utc", "case_id", "event", "reviewer", "enquiry", "retrieved_sources", "generation_mode",
-    "draft", "citation_check", "triage_decision", "triage_reasons", "pv_flag", "reviewer_action",
+    "draft", "citation_check", "triage_decision", "triage_reasons", "pv_flag", "pv_reason", "quality_flag", "reviewer_action",
     "final_response", "reviewer_comment",
 ]
 
@@ -34,14 +34,24 @@ def log_event(path: str | Path, case_id: str, event: str, result, reviewer: str 
         "generation_mode": result.draft.mode,
         "draft": result.draft.text,
         "citation_check": json.dumps({"passed": cc.passed, "cited": cc.cited, "invalid": cc.invalid,
-                                      "uncited": len(cc.uncited_sentences)}, ensure_ascii=False),
+                                      "uncited": len(cc.uncited_sentences),
+                                      "ungrounded": cc.ungrounded}, ensure_ascii=False),
         "triage_decision": result.decision,
         "triage_reasons": " | ".join(result.reasons),
         "pv_flag": "YES" if result.pv_flag else "NO",
+        "pv_reason": result.pv_reason,
+        "quality_flag": "YES" if result.quality_flag else "NO",
         "reviewer_action": reviewer_action,
         "final_response": final_response,
         "reviewer_comment": reviewer_comment,
     }
+    if path.exists():
+        with path.open(newline="", encoding="utf-8") as f:
+            header = next(csv.reader(f), [])
+        if header != COLUMNS:
+            # Schema changed: archive the old log rather than appending misaligned rows.
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+            path.rename(path.with_name(f"{path.stem}.archived-{stamp}{path.suffix}"))
     new = not path.exists()
     with path.open("a", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=COLUMNS)

@@ -76,6 +76,13 @@ PATTERNS = {
     # Adverse event: a personal/temporal experience, not a general "what are the side effects" question.
     "ae": r"\b(developed|experienced|experiencing|suffered|suffering|been having|been getting|has had|have had|started having|is having|am having|noticed|complain(ed|s|ing)? of|reported|came out in|broke out in)\b|\b(after|since) (taking|starting|using|injecting|being (put|started) on|the first (dose|injection)|i started|he started|she started)\b|\bhospitali[sz]\w*|\badmitted to hospital\b|\bA&E\b|\bemergency department\b|\bpassed away\b|\bdied\b",
     "serious_ae": r"\bhospitali[sz]\w*|\badmitted\b|\blife[- ]threatening\b|\bdied\b|\bdeath\b|\bpassed away\b|\bdisabilit\w*|\banaphyla\w*|\bA&E\b|\bemergency\b|\bintensive care\b|\bsevere\b",
+    # ---- PV special situations (reportable even without an adverse event) ----
+    # Exposure/actual-use cues: separate a report ("I'm pregnant and on X") from a hypothetical question.
+    "exposure": r"\b(am|is|are|was|were|has been|have been|been|currently|already) (taking|using|on|injecting|prescribed|given)\b|\bwhile (taking|on|using)\b|\b(continue|continuing|keep taking|stop|stopping)\b|\bfound out\b|\b(became|got|become) pregnant\b|\bsince (taking|starting)\b|\b(has|have|had) (used|taken|injected|been given)\b|\b(took|injected)\b|\bprescribed\b|\bstarted (on|taking)\b",
+    "medication_error": r"\bwrong (dose|medicine|medication|tablets?|strength|drug|pen|patient)\b|\bby mistake\b|\bin error\b|\binstead of\b.{0,30}\b(tablets?|dose|pen|mg)\b|\b(took|taken|injected|given) (it )?twice\b|\bexpired\b.{0,30}\b(took|taken|used|injected|gave)\b|\b(took|taken|used|injected|gave)\b.{0,30}\bexpired\b|\baccidentally\b|\bdispens\w+ error\b",
+    "lack_of_efficacy": r"\b(not|isn'?t|aren'?t|doesn'?t|don'?t|didn'?t|hasn'?t|stopped|no longer) (seem to |seems to )?(work|working|worked|help|helping|helped|lowering|controlling)\b|\bno (effect|improvement|difference)\b|\bineffective\b|\black of (efficacy|effect)\b|\bstill (high|raised|elevated|uncontrolled|not controlled)\b",
+    # ---- Product quality complaint (routes to QA, separate from PV) ----
+    "quality": r"\bcloudy\b|\bbent (needle|pen)\b|\bbroken\b|\bdiscolou?r\w*|\btamper\w*|\bdamaged\b|\bcrack(ed|s)?\b|\bleak\w*|\bparticles?\b|\bforeign (body|object|matter)\b|\bwrong colou?r\b|\bcrumbl\w*|\bfaulty\b|\bjammed\b|\bmissing (tablets?|pills?)\b|\b(strange|odd|funny) (smell|taste)\b|\bseal\b.{0,20}\b(broken|open)|\bmislabel\w*|\bwon'?t (click|inject|dispense)\b|\bcounterfeit\b",
     # Claims a draft must never make (checked post-generation).
     "prohibited_claims": r"\bcures?\b|\bguarantee\w*|\bcompletely safe\b|\b100% safe\b|\bno side effects\b|\bbetter than\b|\bsuperior to\b|\bmiracle\b",
 }
@@ -115,6 +122,41 @@ def detect_adverse_event(enquiry: str) -> tuple[bool, bool, str]:
         return False, False, ""
     serious = _has("serious_ae", enquiry)
     return True, serious, m.group(0)
+
+
+@dataclass
+class SafetyFlags:
+    pv_flag: bool
+    pv_reasons: list[str]
+    quality_flag: bool
+    quality_reasons: list[str]
+
+
+def detect_safety(enquiry: str, pre_hits: list[RuleHit]) -> SafetyFlags:
+    """PV flag = adverse event OR special situation. Quality flag = product quality complaint.
+    Both are independent of triage: they are raised whatever the drafting outcome."""
+    pv: list[str] = []
+    is_ae, serious, matched = detect_adverse_event(enquiry)
+    if is_ae:
+        pv.append(f"Possible adverse event (matched '{matched}'{', possibly serious' if serious else ''}).")
+    exposure = _has("exposure", enquiry)
+    codes = {h.code for h in pre_hits}
+    if "pregnancy" in codes and exposure:
+        pv.append("Special situation: exposure during pregnancy or breastfeeding.")
+    if _has("overdose", enquiry):
+        pv.append("Special situation: overdose.")
+    if _has("medication_error", enquiry):
+        pv.append("Special situation: possible medication error.")
+    if _has("lack_of_efficacy", enquiry):
+        pv.append("Special situation: reported lack of efficacy.")
+    if "off_label" in codes and exposure:
+        pv.append("Special situation: reported off-label use.")
+    q = []
+    m = re.search(PATTERNS["quality"], enquiry, re.I)
+    if m:
+        q.append(f"Possible product quality complaint (matched '{m.group(0)}'). Forward to Quality Assurance; "
+                 "ask the enquirer to keep the product and packaging (batch number).")
+    return SafetyFlags(bool(pv), pv, bool(q), q)
 
 
 def pre_checks(enquiry: str, retrieval: RetrievalResult, retriever: Retriever) -> list[RuleHit]:

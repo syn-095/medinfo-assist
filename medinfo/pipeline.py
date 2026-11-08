@@ -23,6 +23,8 @@ class Result:
     pv_flag: bool
     pv_reason: str = ""
     hit_codes: list[str] = field(default_factory=list)
+    quality_flag: bool = False
+    quality_reason: str = ""
 
 
 def process(enquiry: str, retriever: Retriever, api_key: str | None = None) -> Result:
@@ -36,11 +38,11 @@ def process(enquiry: str, retriever: Retriever, api_key: str | None = None) -> R
     post = rules.post_checks(draft.text, draft.coverage, draft.citation_check)
     decision, reasons = rules.triage(pre + post)
 
-    is_ae, serious, matched = rules.detect_adverse_event(enquiry)
+    safety = rules.detect_safety(enquiry, pre)
     pv_reason = ""
-    if is_ae:
-        pv_reason = (f"Possible adverse event mentioned (matched: '{matched}'"
-                     f"{', possibly serious' if serious else ''}). Report to pharmacovigilance within 24 hours "
+    if safety.pv_flag:
+        pv_reason = (" ".join(safety.pv_reasons) + " Report to pharmacovigilance within 24 hours "
                      "regardless of the triage outcome.")
-    return Result(enquiry, retrieval, pre, draft, post, decision, reasons, is_ae, pv_reason,
-                  hit_codes=sorted({h.code for h in pre + post}))
+    return Result(enquiry, retrieval, pre, draft, post, decision, reasons, safety.pv_flag, pv_reason,
+                  hit_codes=sorted({h.code for h in pre + post}),
+                  quality_flag=safety.quality_flag, quality_reason=" ".join(safety.quality_reasons))
