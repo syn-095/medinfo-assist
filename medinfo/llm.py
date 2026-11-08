@@ -119,4 +119,9 @@ def _call_cli(system: str, user: str) -> LLMReply:
         raise LLMError(f"claude CLI gave no result (exit {proc.returncode}): {proc.stderr.strip()[:200]}")
     if result.get("is_error"):
         raise LLMError(f"claude CLI error: {str(result.get('result'))[:200]}")
+    # The alias is resolved server-side and can change between runs, so record the model per call:
+    # the init event's model, cross-checked against the models actually billed (modelUsage).
+    used = sorted((result.get("modelUsage") or {}).keys())
+    if used and used != [model]:
+        model = f"{model} (usage: {', '.join(used)})"
     return LLMReply(str(result.get("result") or ""), "claude_cli", model, time.monotonic() - t0)

@@ -60,7 +60,7 @@ def run_case(e: dict, retriever: Retriever, backend: str, key: str | None) -> tu
         "pv_ok": r.pv_flag == e["expected_pv"],
         "expected_source": exp_src or "", "source_retrieved": "" if src_hit is None else src_hit,
         "source_cited": "" if src_cited is None else src_cited,
-        "backend": r.backend, "draft_backend": r.draft.backend, "model": r.draft.model or (ls.model if ls else ""),
+        "backend": r.backend, "draft_backend": r.draft.backend, "draft_model": r.draft.model, "classifier_model": ls.model if ls else "",
         "mode": r.draft.mode,
         "citation_check": "n/a" if r.draft.mode == "not_covered" else ("PASS" if cc.passed else "FAIL"),
         "cited": "; ".join(cc.cited),
@@ -145,7 +145,10 @@ def main():
     llm_fallback = [x["id"] for x in rows if "->extractive" in x["draft_backend"]]
 
     print()
-    model = next((x["model"] for x in rows if x["model"]), "-")
+    # Every model actually seen in this run (per call, from the CLI init event / API response).
+    from collections import Counter
+    seen = Counter(m for x in rows for m in (x["draft_model"], x["classifier_model"]) if m)
+    model = ", ".join(f"{m} ×{c}" for m, c in seen.most_common()) or "-"
     print(f"Test set: {Path(args.data).name} ({n} cases) · backend: {backend} · model: {model} · "
           f"wall {wall:.0f}s, workers {args.workers}")
     print(f"Triage correct:          {t_ok}/{n}   (regex floor alone: {t_ok_regex}/{n})")
