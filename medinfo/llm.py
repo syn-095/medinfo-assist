@@ -89,7 +89,9 @@ def _call_cli(system: str, user: str) -> LLMReply:
     if not exe:
         raise LLMError("claude CLI not found on PATH")
     t0 = time.monotonic()
-    with tempfile.TemporaryDirectory(prefix="medinfo_cli_") as tmp:
+    # ignore_cleanup_errors: on Windows the CLI (or a child process) can still hold a handle in
+    # the temp dir when we exit; a failed delete must not throw away a successful reply.
+    with tempfile.TemporaryDirectory(prefix="medinfo_cli_", ignore_cleanup_errors=True) as tmp:
         sp = Path(tmp) / "system_prompt.txt"
         sp.write_text(system, encoding="utf-8")
         cmd = [exe, "-p", "--system-prompt-file", str(sp), "--tools", "", "--strict-mcp-config",

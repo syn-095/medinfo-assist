@@ -76,6 +76,9 @@ SECTION_REF_RE = re.compile(
     r"|\bQ\d+\b", re.I)
 
 
+DOC_ID_RE = re.compile(r"\b[A-Z]{2,5}-[A-Z]{2,6}-\d{3}\b")
+
+
 def _norm(text: str) -> str:
     """Lower-case, unify dashes, drop thousands commas and number-unit spaces ("10 mg" -> "10mg")."""
     t = text.lower().replace("–", "-").replace("—", "-")
@@ -94,6 +97,7 @@ def ungrounded_values(sentence: str, chunk_texts: dict[str, str]) -> list[str]:
     cites = [c for c in _cites_in(sentence) if c in chunk_texts]
     body = BRACKET_RE.sub(" ", sentence)  # citation IDs/section numbers are not claims
     body = SECTION_REF_RE.sub(" ", body)   # nor are prose references like "see section 4.4"
+    body = DOC_ID_RE.sub(" ", body)        # nor are document IDs written in prose ("VLX-SMPC-001")
     source = " ".join(_norm(chunk_texts[c]) for c in cites)
     missing = []
     for m in VALUE_RE.finditer(body):
