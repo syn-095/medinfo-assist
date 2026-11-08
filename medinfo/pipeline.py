@@ -49,7 +49,10 @@ class Result:
     backend: str = "extractive"
     llm_hits: list[rules.RuleHit] = field(default_factory=list)
     llm_safety: LLMSafety | None = None
-    decision_regex: str = ""               # what the rules alone decided (for layer metrics)
+    # Three decisions, for honest layer attribution:
+    decision_rules_pre: str = ""           # regex/lexicon pre-checks on the enquiry only
+    decision_rules_plus_draft: str = ""    # pre-checks + post-checks on whatever draft was produced
+    escalated_by: list[str] = field(default_factory=list)  # subset of rules_pre / draft_checks / llm_classifier
     pv_regex: bool = False
     quality_regex: bool = False
     layers: dict = field(default_factory=dict)   # flag -> "regex" | "llm" | "both"
@@ -74,7 +77,9 @@ def process(enquiry: str, retriever: Retriever, api_key: str | None = None,
         post = rules.post_checks(draft.text, draft.coverage, draft.citation_check)
         llm_safety: LLMSafety = safety_future.result()
 
-    decision_regex, _ = rules.triage(pre + post)
+    # Note: `post` checks the DRAFT, which may be LLM-written, so pre+post is not a pure regex floor.
+    decision_rules_pre, _ = rules.triage(pre)
+    decision_rules_plus_draft, _ = rules.triage(pre + post)
     safety = rules.detect_safety(enquiry, pre)
     pv_reasons = list(safety.pv_reasons)
     quality_reasons = list(safety.quality_reasons)
@@ -122,5 +127,8 @@ def process(enquiry: str, retriever: Retriever, api_key: str | None = None,
                   hit_codes=sorted({h.code for h in pre + post + llm_hits}),
                   quality_flag=bool(quality_reasons), quality_reason=" ".join(quality_reasons),
                   backend=backend, llm_hits=llm_hits, llm_safety=llm_safety,
-                  decision_regex=decision_regex, pv_regex=safety.pv_flag, quality_regex=safety.quality_flag,
+                  decision_rules_pre=decision_rules_pre, decision_rules_plus_draft=decision_rules_plus_draft,
+                  escalated_by=[name for name, hits in (("rules_pre", pre), ("draft_checks", post),
+                                                         ("llm_classifier", llm_hits)) if hits],
+                  pv_regex=safety.pv_flag, quality_regex=safety.quality_flag,
                   layers={k: v for k, v in layers.items() if v})

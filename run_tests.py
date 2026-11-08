@@ -46,7 +46,7 @@ def run_case(e: dict, retriever: Retriever, backend: str, key: str | None) -> tu
     r = process(e["enquiry"], retriever, key, backend=backend)
     secs = time.monotonic() - t0
     actual = "answer" if r.decision == DRAFT_OK else "escalate"
-    actual_regex = "answer" if r.decision_regex == DRAFT_OK else "escalate"
+    tri = lambda d: "answer" if d == DRAFT_OK else "escalate"
     exp_src = e.get("expected_source")
     src_hit = (exp_src in r.retrieval.ids) if exp_src else None
     src_cited = (exp_src in r.draft.citation_check.cited) if (exp_src and r.draft.mode != "not_covered") else None
@@ -54,9 +54,13 @@ def run_case(e: dict, retriever: Retriever, backend: str, key: str | None) -> tu
     ls = r.llm_safety
     row = {
         "id": e["id"],
-        "expected_triage": e["expected_triage"], "actual_triage": actual, "regex_only_triage": actual_regex,
+        "expected_triage": e["expected_triage"], "actual_triage": actual,
+        "rules_pre_triage": tri(r.decision_rules_pre),
+        "rules_plus_draft_checks_triage": tri(r.decision_rules_plus_draft),
+        "escalated_by": "+".join(r.escalated_by) if actual == "escalate" else "",
         "triage_ok": actual == e["expected_triage"],
-        "expected_pv": e["expected_pv"], "actual_pv": r.pv_flag, "regex_only_pv": r.pv_regex,
+        "expected_pv": e["expected_pv"], "actual_pv": r.pv_flag, "regex_pv": r.pv_regex,
+        "pv_by": r.layers.get("pv", ""),
         "pv_ok": r.pv_flag == e["expected_pv"],
         "expected_source": exp_src or "", "source_retrieved": "" if src_hit is None else src_hit,
         "source_cited": "" if src_cited is None else src_cited,
@@ -106,7 +110,7 @@ def main():
 
     # ---- Table ----
     hdr = (f"{'ID':<4} {'Expected':<9} {'Actual':<9} {'OK':<3} {'PV exp/act':<11} {'Ret':<4} {'Cit':<4} "
-           f"{'Check':<5} {'Layers (flag=regex/llm/both)'}")
+           f"{'Check':<5} {'Escalated by':<34} {'Flag layers (regex/llm/both)'}")
     print(hdr)
     print("-" * (len(hdr) + 30))
     yn = lambda b: "Y" if b else "N"
@@ -117,14 +121,15 @@ def main():
         llm_err = "  [LLM classifier ignored: " + x["llm_status"][:60] + "]" if x["llm_status"].startswith("error") else ""
         print(f"{x['id']:<4} {x['expected_triage']:<9} {x['actual_triage']:<9} {ok:<3} "
               f"{yn(x['expected_pv'])}/{yn(x['actual_pv']):<9} {src:<4} {cit:<4} {x['citation_check']:<5} "
-              f"{x['layers'] or '-'}{llm_err}")
+              f"{x['escalated_by'] or '-':<34} {x['layers'] or '-'}{llm_err}")
 
     # ---- Summary ----
     n = len(rows)
     t_ok = sum(x["triage_ok"] for x in rows)
-    t_ok_regex = sum(x["regex_only_triage"] == x["expected_triage"] for x in rows)
+    t_ok_pre = sum(x["rules_pre_triage"] == x["expected_triage"] for x in rows)
+    t_ok_draft = sum(x["rules_plus_draft_checks_triage"] == x["expected_triage"] for x in rows)
     pv_ok = sum(x["pv_ok"] for x in rows)
-    pv_ok_regex = sum(x["regex_only_pv"] == x["expected_pv"] for x in rows)
+    pv_ok_regex = sum(x["regex_pv"] == x["expected_pv"] for x in rows)
     drafted = [x for x in rows if x["citation_check"] != "n/a"]
     cc_ok = sum(x["citation_check"] == "PASS" for x in drafted)
     src_rows = [x for x in rows if x["source_retrieved"] != ""]
@@ -135,12 +140,18 @@ def main():
     missed_esc = [x["id"] for x in rows if x["expected_triage"] == "escalate" and x["actual_triage"] == "answer"]
     over_esc = [x["id"] for x in rows if x["expected_triage"] == "answer" and x["actual_triage"] == "escalate"]
     # Layer attribution (only meaningful with an LLM backend)
-    llm_triage_catch = [x["id"] for x in rows if x["expected_triage"] == "escalate"
-                        and x["regex_only_triage"] == "answer" and x["actual_triage"] == "escalate"]
-    llm_pv_catch = [x["id"] for x in rows if x["expected_pv"] and not x["regex_only_pv"] and x["actual_pv"]]
+    exp_esc = [x for x in rows if x["expected_triage"] == "escalate" and x["actual_triage"] == "escalate"]
+    # Correct escalations, by which layers raised them.
+    by_pre_only = [x["id"] for x in exp_esc if x["escalated_by"] == "rules_pre"]
+    draft_only = [x["id"] for x in exp_esc if x["escalated_by"] == "draft_checks"]
+    llm_triage_catch = [x["id"] for x in exp_esc if x["escalated_by"] == "llm_classifier"]
+    multi = [x["id"] for x in exp_esc if "+" in x["escalated_by"]]
+    llm_pv_catch = [x["id"] for x in rows if x["expected_pv"] and not x["regex_pv"] and x["actual_pv"]]
     llm_over_esc = [x["id"] for x in rows if x["expected_triage"] == "answer"
-                    and x["regex_only_triage"] == "answer" and x["actual_triage"] == "escalate"]
-    llm_pv_fp = [x["id"] for x in rows if not x["expected_pv"] and not x["regex_only_pv"] and x["actual_pv"]]
+                    and x["rules_plus_draft_checks_triage"] == "answer" and x["actual_triage"] == "escalate"]
+    draft_over_esc = [x["id"] for x in rows if x["expected_triage"] == "answer"
+                      and x["rules_pre_triage"] == "answer" and x["rules_plus_draft_checks_triage"] == "escalate"]
+    llm_pv_fp = [x["id"] for x in rows if not x["expected_pv"] and not x["regex_pv"] and x["actual_pv"]]
     llm_errors = [x["id"] for x in rows if x["llm_status"].startswith("error")]
     llm_fallback = [x["id"] for x in rows if "->extractive" in x["draft_backend"]]
 
@@ -151,17 +162,22 @@ def main():
     model = ", ".join(f"{m} ×{c}" for m, c in seen.most_common()) or "-"
     print(f"Test set: {Path(args.data).name} ({n} cases) · backend: {backend} · model: {model} · "
           f"wall {wall:.0f}s, workers {args.workers}")
-    print(f"Triage correct:          {t_ok}/{n}   (regex floor alone: {t_ok_regex}/{n})")
+    print(f"Triage correct (final, merged):        {t_ok}/{n}")
+    print(f"  rules_pre only (regex on enquiry):   {t_ok_pre}/{n}")
+    print(f"  rules_pre + draft_checks:            {t_ok_draft}/{n}   (draft checks run on whatever draft was produced)")
     print(f"  Missed escalations:    {len(missed_esc)} {missed_esc}   <- the safety-critical error")
     print(f"  Over-escalations:      {len(over_esc)} {over_esc}")
-    print(f"PV flag correct:         {pv_ok}/{n}   (regex floor alone: {pv_ok_regex}/{n})")
+    print(f"PV flag correct (final): {pv_ok}/{n}   (regex alone: {pv_ok_regex}/{n})")
     print(f"Expected source in top-k:{src_ok}/{len(src_rows)}")
     print(f"Expected source cited:   {cit_ok}/{len(cit_rows)} drafted {cit_miss}")
     print(f"Citation check passed:   {cc_ok}/{len(drafted)} drafted responses")
     print(f"Citation check self-test (catches fake/unretrieved/missing citations and wrong figures): "
           f"{'PASS' if citation_check_selftest(retriever) else 'FAIL'}")
+    print(f"Correct escalations by layer: rules_pre only {by_pre_only}  draft_checks only {draft_only}  "
+          f"llm_classifier only {llm_triage_catch}  several {multi}")
+    print(f"Over-escalations added by draft_checks: {draft_over_esc}")
     if backend != "extractive":
-        print(f"LLM-only catches:        triage {llm_triage_catch}  PV {llm_pv_catch}")
+        print(f"LLM-only catches (neither rules_pre nor draft_checks): triage {llm_triage_catch}  PV {llm_pv_catch}")
         print(f"LLM-added over-escalations: {llm_over_esc}   LLM-added PV false positives: {llm_pv_fp}")
         print(f"LLM classifier errors (ignored, regex kept): {llm_errors}   Drafting fallbacks to extractive: {llm_fallback}")
 

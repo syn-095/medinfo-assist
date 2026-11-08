@@ -9,7 +9,8 @@ from pathlib import Path
 
 COLUMNS = [
     "timestamp_utc", "case_id", "event", "reviewer", "enquiry", "backend", "model", "retrieved_sources",
-    "generation_mode", "draft", "citation_check", "llm_safety", "flag_layers", "regex_only_decision", "triage_decision", "triage_reasons", "pv_flag", "pv_reason", "quality_flag", "reviewer_action",
+    "generation_mode", "draft", "citation_check", "llm_safety", "flag_layers", "rules_pre_decision",
+    "rules_plus_draft_checks_decision", "escalated_by", "triage_decision", "triage_reasons", "pv_flag", "pv_reason", "quality_flag", "reviewer_action",
     "final_response", "reviewer_comment",
 ]
 
@@ -37,7 +38,9 @@ def log_event(path: str | Path, case_id: str, event: str, result, reviewer: str 
         "llm_safety": json.dumps({"status": result.llm_safety.status if result.llm_safety else "n/a",
                                   "flags": result.llm_safety.flags if result.llm_safety else {}}, ensure_ascii=False),
         "flag_layers": json.dumps(result.layers, ensure_ascii=False),
-        "regex_only_decision": result.decision_regex,
+        "rules_pre_decision": result.decision_rules_pre,
+        "rules_plus_draft_checks_decision": result.decision_rules_plus_draft,
+        "escalated_by": ", ".join(result.escalated_by),
         "draft": result.draft.text,
         "citation_check": json.dumps({"passed": cc.passed, "cited": cc.cited, "invalid": cc.invalid,
                                       "uncited": len(cc.uncited_sentences),
