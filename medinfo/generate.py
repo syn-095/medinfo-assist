@@ -174,7 +174,12 @@ def _format_sources(retrieval: RetrievalResult) -> str:
     blocks = []
     for h in retrieval.hits:
         c = h.chunk
-        blocks.append(f'<source id="{c.chunk_id}" title="{c.heading}" doc_version="{c.version}" approved="{c.approval_date}">\n{c.text}\n</source>')
+        # Product and active substance on every block: a section that only says "velorastat"
+        # must still be recognisable as Veloxitab information (harness fix for E08).
+        sub = f" ({c.substance})" if c.substance else ""
+        blocks.append(f'<source id="{c.chunk_id}" product="{c.product}{sub}" document="{c.title}" '
+                      f'section="{c.heading}" doc_version="{c.version}" approved="{c.approval_date}">\n'
+                      f'{c.text}\n</source>')
     return "\n\n".join(blocks)
 
 

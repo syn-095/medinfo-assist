@@ -76,6 +76,7 @@ class Chunk:
     version: str
     approval_date: str
     title: str
+    substance: str = ""  # active substance, filled in from §1 of the product's SmPC
 
 
 @dataclass
@@ -144,6 +145,13 @@ class Retriever:
             m = re.search(r"active substance is (\w+)", c.text)
             if m:
                 self.aliases[c.product].add(m.group(1).lower())
+        substance = {}
+        for c in self.chunks:
+            m = re.search(r"active substance is (\w+)", c.text)
+            if m:
+                substance[c.product] = m.group(1)
+        for c in self.chunks:
+            c.substance = substance.get(c.product, "")
         self._alias_tokens = {stem(a) for s in self.aliases.values() for a in s}
         # Headings weighted x2: they summarise the section in label vocabulary.
         self._corpus = [tokenize(f"{c.heading} {c.heading} {c.text}") for c in self.chunks]
