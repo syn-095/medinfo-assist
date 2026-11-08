@@ -69,6 +69,12 @@ UNITS = r"mg|mcg|µg|g|ml|mmol|mol|°c|%|hours?|days?|weeks?|months?|years?|litr
 VALUE_RE = re.compile(rf"(?<![\w.])(\d+(?:[.,]\d+)?)(?:\s*({UNITS})(?![a-z]))?", re.I)
 
 
+# "section 4.4", "sections 4.4 and 4.8", "§4.2", "SmPC section 6.4", "Q3" - references, not values.
+SECTION_REF_RE = re.compile(
+    r"(?:\bsections?\b|§)\s*(?:[A-Za-z]?\d+(?:\.\d+)*|Q\d+)(?:\s*(?:,|and|&|or|to|-)\s*(?:[A-Za-z]?\d+(?:\.\d+)*|Q\d+))*"
+    r"|\bQ\d+\b", re.I)
+
+
 def _norm(text: str) -> str:
     """Lower-case, unify dashes, drop thousands commas and number-unit spaces ("10 mg" -> "10mg")."""
     t = text.lower().replace("–", "-").replace("—", "-")
@@ -86,6 +92,7 @@ def ungrounded_values(sentence: str, chunk_texts: dict[str, str]) -> list[str]:
     Grounding is checked per sentence: a value cited to §4.2 must be in §4.2's text."""
     cites = [c for c in _cites_in(sentence) if c in chunk_texts]
     body = BRACKET_RE.sub(" ", sentence)  # citation IDs/section numbers are not claims
+    body = SECTION_REF_RE.sub(" ", body)   # nor are prose references like "see section 4.4"
     source = " ".join(_norm(chunk_texts[c]) for c in cites)
     missing = []
     for m in VALUE_RE.finditer(body):
