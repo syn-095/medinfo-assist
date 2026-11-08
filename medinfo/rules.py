@@ -80,7 +80,7 @@ PATTERNS = {
     # Exposure/actual-use cues: separate a report ("I'm pregnant and on X") from a hypothetical question.
     "exposure": r"\b(am|is|are|was|were|has been|have been|been|currently|already) (taking|using|on|injecting|prescribed|given)\b|\bwhile (taking|on|using)\b|\b(continue|continuing|keep taking|stop|stopping)\b|\bfound out\b|\b(became|got|become) pregnant\b|\bsince (taking|starting)\b|\b(has|have|had) (used|taken|injected|been given)\b|\b(took|injected)\b|\bprescribed\b|\bstarted (on|taking)\b",
     "medication_error": r"\bwrong (dose|medicine|medication|tablets?|strength|drug|pen|patient)\b|\bby mistake\b|\bin error\b|\binstead of\b.{0,30}\b(tablets?|dose|pen|mg)\b|\b(took|taken|injected|given) (it )?twice\b|\bexpired\b.{0,30}\b(took|taken|used|injected|gave)\b|\b(took|taken|used|injected|gave)\b.{0,30}\bexpired\b|\baccidentally\b|\bdispens\w+ error\b",
-    "lack_of_efficacy": r"\b(not|isn'?t|aren'?t|doesn'?t|don'?t|didn'?t|hasn'?t|stopped|no longer) (seem to |seems to )?(work|working|worked|help|helping|helped|lowering|controlling)\b|\bno (effect|improvement|difference)\b|\bineffective\b|\black of (efficacy|effect)\b|\bstill (high|raised|elevated|uncontrolled|not controlled)\b",
+    "lack_of_efficacy": r"\b(not|isn'?t|aren'?t|doesn'?t|don'?t|didn'?t|hasn'?t|stopped|no longer) (seem to |seems to )?(work|working|worked|help|helping|helped|lowering|controlling)\b|\bno (effect|improvement|difference)\b|\bineffective\b|\black of (efficacy|effect)\b|\bstill (high|raised|elevated|uncontrolled|not controlled|the same|not (under control|controlled|down))\b|\b(not|hasn'?t|haven'?t|isn'?t|aren'?t|won'?t|never|didn'?t) (really )?(come|gone|going|coming|went|dropped|dropping|fallen|falling|improved|improving|changed|budged)( down)?\b|\bno (change|real change|better)\b|\beven (on|at|with|after) (the )?(\d+(\.\d+)? ?(mg|units?)|max(imum)?( dose)?|highest dose|full dose|top dose)\b",
     # ---- Product quality complaint (routes to QA, separate from PV) ----
     "quality": r"\bcloudy\b|\bbent (needle|pen)\b|\bbroken\b|\bdiscolou?r\w*|\btamper\w*|\bdamaged\b|\bcrack(ed|s)?\b|\bleak\w*|\bparticles?\b|\bforeign (body|object|matter)\b|\bwrong colou?r\b|\bcrumbl\w*|\bfaulty\b|\bjammed\b|\bmissing (tablets?|pills?)\b|\b(strange|odd|funny) (smell|taste)\b|\bseal\b.{0,20}\b(broken|open)|\bmislabel\w*|\bwon'?t (click|inject|dispense)\b|\bcounterfeit\b",
     # Claims a draft must never make (checked post-generation).
@@ -184,6 +184,18 @@ def detect_adverse_event(enquiry: str) -> tuple[bool, bool, str]:
     return True, serious, matched
 
 
+MEASURE_RE = re.compile(r"\b(blood pressure|bp|systolic|diastolic|mmhg|hba1c|a1c|glucose|blood sugars?|sugars?|readings?|levels?|mmol)\b", re.I)
+
+
+def _still_reading(enquiry: str) -> bool:
+    """'still <number>' (e.g. "still around 160", "still 150/95") near a BP/HbA1c/glucose mention."""
+    for m in re.finditer(r"\bstill (at |around |about |over |above |near |sitting at |reading |~)?\d{1,3}(\.\d+)?(/\d{2,3})?", enquiry, re.I):
+        window = enquiry[max(0, m.start() - 60): m.end() + 40]
+        if MEASURE_RE.search(window):
+            return True
+    return False
+
+
 @dataclass
 class SafetyFlags:
     pv_flag: bool
@@ -207,7 +219,7 @@ def detect_safety(enquiry: str, pre_hits: list[RuleHit]) -> SafetyFlags:
         pv.append("Special situation: overdose.")
     if _has("medication_error", enquiry):
         pv.append("Special situation: possible medication error.")
-    if _has("lack_of_efficacy", enquiry):
+    if _has("lack_of_efficacy", enquiry) or _still_reading(enquiry):
         pv.append("Special situation: reported lack of efficacy.")
     if "off_label" in codes and exposure:
         pv.append("Special situation: reported off-label use.")
