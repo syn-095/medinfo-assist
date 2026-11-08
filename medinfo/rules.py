@@ -64,15 +64,15 @@ DRUGS = [
 
 PATTERNS = {
     "off_label_explicit": r"\boff[- ]?label\b|\bunlicen[cs]ed\b|\boutside (the |its )?licen[cs]e\b|\bnot (licen[cs]ed|indicated)\b",
-    "pregnancy": r"\bpregnan\w*|\bbreast[- ]?feed\w*|\bbreast ?milk\b|\blactat\w*|\bnursing (mother|baby)\b|\btrying (to|for a) (conceive|baby)\b|\bconception\b",
-    "paediatric": r"\bchild(ren)?\b|\bpa?ediatric\w*|\binfant\w*|\bbab(y|ies)\b|\btoddler\w*|\badolescen\w*|\bteen(ager)?s?\b|\bunder 18\b|\bkids?\b|\bneonat\w*",
+    "pregnancy": r"\bpregnan\w*|\bbreast[- ]?feed\w*|\bbreast ?milk\b|\blactat\w*|\bnursing (mother|baby)\b|\btrying (to|for a) (conceive|baby)\b|\bconception\b|\bexpecting (a baby|twins)\b|\bmother[- ]to[- ]be\b",
+    "paediatric": r"\bchild(ren)?\b|\bpa?ediatric\w*|\binfant\w*|(?<!expecting a )\bbab(y|ies)\b|\btoddler\w*|\badolescen\w*|\bteen(ager)?s?\b|\bunder 18\b|\bkids?\b|\bneonat\w*",
     "age": r"\b(\d{1,3})[- ]?(?:years?|yrs?)[- ]?old\b|\baged (\d{1,3})\b|\b(\d{1,3}) ?y/?o\b",
     "elderly_words": r"\bvery elderly\b|\bfrail\b|\bcare home\b|\bnursing home\b",
     "overdose": r"\bover[- ]?dos\w*|\btoo many\b|\bdouble (dose|injection)d?\b.*\b(took|taken|given|injected)\b|\b(took|taken|swallowed|injected|given)\b.{0,30}\b(two|three|four|five|six|several|\d+)\b.{0,15}\b(tablets?|pills?|doses|pens|injections)\b|\baccidentally (took|taken|swallowed|injected|gave|given)\b",
     "interaction_cue": r"\binteract\w*|\btogether\b|\bwith\b|\balongside\b|\bcombin\w*|\bat the same time\b|\bco-?administ\w*",
     "competitor": r"\bmore effective than\b|\bbetter than\b|\bworse than\b|\bsuperior\b|\binferior\b|\bcompared? (to|with)\b|\bcomparison\b|\bversus\b|\bvs\.?\b|\bas good as\b|\bswitch(ing)? from \w+ to\b|\bcompetitor\b",
     "patient_specific": r"\bshould (i|we|he|she|they|my patient)\b.{0,40}\b(increase|decrease|reduce|stop|start|switch|change|continue|restart|give|take)\b|\b(increase|switch|stop|change|reduce) (him|her|them)\b|\bwould you recommend\b|\bwhat (dose|would you) .{0,30}\b(recommend|advise)\b|\bin my case\b|\bis (this|it) (normal|safe) for (me|him|her)\b|\bis this normal\b|\bis it safe to continue\b",
-    "injection": r"\bignore (all |any )?(of )?(your |the |my )?(previous |prior |above |earlier )?(instructions|rules|prompt)|\bdisregard\b|\byou are now\b|\bsystem prompt\b|\bpretend (to be|you)\b|\bact as\b|\bjailbreak\b|\bdeveloper mode\b|\bofficial (company )?statement\b|\bnew instructions\b",
+    "injection": r"\bignore (all |any )?(of )?(your |the |my )?(previous |prior |above |earlier )?(instructions|rules|prompt)|\bdisregard\b|\byou are now\b|\bsystem prompt\b|\bpretend (to be|you)\b|\bact as\b|\bjailbreak\b|\bdeveloper mode\b|\bofficial (company )?statement\b|\bnew instructions\b|^\s*system\s*:|\bnew policy\b|\b(from|use) your own knowledge\b|\boverride\b",
     # Adverse event: a personal/temporal experience, not a general "what are the side effects" question.
     "ae": r"\b(developed|experienced|experiencing|suffered|suffering|been having|been getting|has had|have had|started having|is having|am having|noticed|complain(ed|s|ing)? of|reported|came out in|broke out in)\b|\b(after|since) (taking|starting|using|injecting|being (put|started) on|the first (dose|injection)|i started|he started|she started)\b|\bhospitali[sz]\w*|\badmitted to hospital\b|\bA&E\b|\bemergency department\b|\bpassed away\b|\bdied\b",
     "serious_ae": r"\bhospitali[sz]\w*|\badmitted\b|\blife[- ]threatening\b|\bdied\b|\bdeath\b|\bpassed away\b|\bdisabilit\w*|\banaphyla\w*|\bA&E\b|\bemergency\b|\bintensive care\b|\bsevere\b",
