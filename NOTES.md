@@ -153,3 +153,20 @@ The held-out set (`data/heldout.json`) was written outside this session, and nei
   - Extractive mode initially returned nothing for "What are the contraindications?" because the word only appears in the section heading. Fixed with a heading-match bonus.
   - The danger pattern: the AI tuned rules until the test set passed 30/30, which looks great but is overfitting. The held-out paraphrase check was a deliberate human-style step to counter that.
 - **Open questions for Mon/Tue:** run the held-out set with `--data`, offline AND `--backend claude_cli`, and report both; run the API path once a key is available (different model from the CLI alias); whether every AE should escalate; a sentence-level support check beyond numbers.
+
+## Known issues (found while reporting the held-out run; not fixed, build frozen)
+
+From `test_results_heldout.csv` / `test_results_heldout_cli.csv` (run Tue 10 Nov). Recorded for the next iteration; none was fixed, so the held-out numbers stay honest.
+
+- **Age written in a sentence isn't parsed** ("my daughter is 16", "my grandad is 86"): the age rule only matches forms like "16-year-old", so H01 and H13 were drafted for routine review offline (missed escalations). The LLM classifier caught both.
+- **Serious-AE pattern knows "hospitalised" but not "in hospital"**, and "collapsed" is not an AE cue: H03 raised no PV flag offline (it escalated only via patient-specific).
+- **Patient-specific regex fires on FAQ-style first-person questions**: "should I take it now" (H05, missed dose) matches `should (i…) … take`. Over-escalation in both runs.
+- **AE symptom/exposure pattern fired on a harmless first-person shelf-life/driving question** (H06): PV false positive in both runs.
+- **Quality lexicon misses "look different"** (H15); only the LLM raised the QA flag. H15 also fell below the retrieval threshold.
+- **Overdose described without the word** ("took a massive dose", H12) isn't caught by the regex; H12 escalated via off-label instead. The LLM classifier named overdose.
+- **Interaction drug outside the lexicon** (sumatriptan, H14): escalated only via off-label (migraine) and low confidence.
+- **Lay-language retrieval gap** again: "throw up" (H02) did not retrieve §4.8; offline produced a cited but irrelevant draft, claude_cli escalated as not covered.
+- **Grounding check false-fails on figures from the enquiry** (an age in H01/H13, a tablet strength in H06, as reported from the run console output; the failing values are not stored in the CSV) and the **uncited coverage statement** (H06) recur.
+- **LLM classifier precision**: `patient_specific` on a slang "is that normal?" AE question (H11); a hangover migraine read as an AE (H14, PV false positive).
+- **Model drift via the CLI alias**: the held-out claude_cli run resolved to `claude-sonnet-5-5` (27/27 calls); the training run to `claude-sonnet-5` (55/55). The two claude_cli columns are not a like-for-like comparison.
+- `.gitignore` still had a UTF-8 BOM despite the earlier note; rewritten without one on 10 Nov.
