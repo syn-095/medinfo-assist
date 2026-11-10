@@ -1,7 +1,19 @@
-﻿__pycache__/
+# Python
+__pycache__/
 *.pyc
+
+# Virtual environments
 .venv/
+venv/
+env/
+
+# Secrets
+.env
+.env.*
 .streamlit/secrets.toml
-audit_log.csv
-test_results*.csv
-audit_log.archived-*.csv
+
+# Runtime audit logs (may contain enquiry text)
+audit_log*.csv
+
+# Local Claude Code worktrees
+.claude/worktrees/
