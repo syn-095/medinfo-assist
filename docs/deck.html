@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>MedInfo Assist</title>
+<style>
+  @page { size: A4; margin: 0; }
+  :root { --ink:#1d2430; --muted:#5b6575; --line:#d6dbe3; --accent:#0f5e6e; --accent-soft:#e6f1f3; --warn:#9a3b18; --warn-soft:#fbeee7; --qa:#6a4c93; --qa-soft:#f0ebf7; }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; background:#fff; color:var(--ink); }
+  body { font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; font-size:10.5pt; line-height:1.36; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  .page { width:210mm; height:297mm; padding:11mm 15mm 11mm 15mm; page-break-after:always; break-after:page; position:relative; overflow:hidden; }
+  .page:last-child { page-break-after:auto; break-after:auto; }
+  .foot { position:absolute; bottom:4.5mm; left:15mm; right:15mm; font-size:8pt; color:var(--muted); display:flex; justify-content:space-between; border-top:1px solid var(--line); padding-top:1.5mm; }
+  h1 { font-size:19pt; margin:0 0 1mm 0; color:var(--accent); letter-spacing:-0.2px; }
+  h2 { font-size:13.5pt; margin:0 0 2.2mm 0; color:var(--accent); border-bottom:2px solid var(--accent); padding-bottom:1mm; }
+  h3 { font-size:10.8pt; margin:2.2mm 0 1mm 0; color:var(--ink); }
+  p { margin:0 0 1.8mm 0; }
+  .sub { color:var(--muted); font-size:9.5pt; margin-bottom:3mm; }
+  ul { margin:0 0 1.8mm 0; padding-left:4.5mm; }
+  li { margin:0 0 0.6mm 0; }
+  table { border-collapse:collapse; width:100%; font-size:9pt; line-height:1.28; margin:0.8mm 0 1.6mm 0; }
+  th, td { border:1px solid var(--line); padding:1.1mm 1.6mm; vertical-align:top; text-align:left; }
+  th { background:var(--accent-soft); color:var(--accent); font-weight:600; }
+  td.n, th.n { text-align:center; white-space:nowrap; }
+  tr.ho td { background:#fafbfc; }
+  .callout { background:var(--accent-soft); border-left:3px solid var(--accent); padding:1.8mm 3mm; margin:1.5mm 0 2mm 0; }
+  .warnbox { background:var(--warn-soft); border-left:3px solid var(--warn); padding:1.8mm 3mm; margin:1.5mm 0 2mm 0; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:5mm; }
+  .small { font-size:9pt; }
+  .tiny { font-size:8.2pt; color:var(--muted); }
+  .k { font-weight:600; }
+  code { font-family: Consolas, "Courier New", monospace; font-size:8.8pt; background:#f2f4f7; padding:0 1px; }
+  .bad { color:var(--warn); font-weight:600; }
+  .good { color:var(--accent); font-weight:600; }
+  svg text { font-family: "Segoe UI", Arial, sans-serif; }
+  img.shot { width:100%; border:1px solid var(--line); }
+</style>
+</head>
+<body>
+
+<!-- ============ PAGE 1 ============ -->
+<section class="page">
+  <h1>MedInfo Assist</h1>
+  <div class="sub">Scenario 3 (pharma medical information) · supporting document · William Wilson · fictional products and synthetic data only</div>
+
+  <h2>1. The problem and my approach</h2>
+  <p><span class="k">Client situation.</span> A pharma medical information (MI) team answers product enquiries from patients and healthcare professionals. Officers search approved documents, write a response, and pass anything needing specialist judgement to a medical expert. Every answer must be traceable to approved material, possible adverse events must reach pharmacovigilance (PV), and the team needs a clear escalation route and training.</p>
+  <p><span class="k">What I built.</span> A Streamlit workbench where an MI officer pastes an enquiry and gets (1) a draft built only from approved document sections, with a <code>[DOC-ID §section]</code> citation on every sentence, (2) a triage decision, <em>draft OK for MI officer review</em> or <em>escalate to medical expert</em>, with reasons, (3) separate PV and product-quality flags, and (4) approve / edit / escalate controls that write every step to an audit log.</p>
+
+  <div class="two">
+    <div class="callout small"><span class="k">Why this shape.</span> The expensive, repetitive part of MI work is finding the right approved section and writing a compliant first draft. The risky part is judgement: deciding what is off-label, patient-specific or a reportable event. I automated the first, and used deterministic rules plus human sign-off for the second, so the AI can make the system more cautious but never less.</div>
+    <div class="warnbox small"><span class="k">What I deliberately did not automate.</span> Nothing is ever sent to an enquirer: "approve" only records the final text. No patient-specific advice: those enquiries escalate. No answers from general knowledge: if approved documents don't cover it, the draft says so. The LLM cannot clear a flag or downgrade an escalation.</div>
+  </div>
+
+  <h3>Architecture</h3>
+  <svg viewBox="0 0 720 380" width="100%" role="img" aria-label="Pipeline from enquiry to audit log">
+    <defs>
+      <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5b6575"/></marker>
+      <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9a3b18"/></marker>
+      <marker id="arq" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6a4c93"/></marker>
+    </defs>
+    <!-- row 1 -->
+    <rect x="8" y="20" width="118" height="62" rx="6" fill="#fff" stroke="#1d2430"/>
+    <text x="67" y="45" text-anchor="middle" font-size="13" font-weight="600" fill="#1d2430">Enquiry</text>
+    <text x="67" y="63" text-anchor="middle" font-size="10.5" fill="#5b6575">free text, untrusted</text>
+
+    <rect x="150" y="20" width="160" height="62" rx="6" fill="#e6f1f3" stroke="#0f5e6e"/>
+    <text x="230" y="40" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0f5e6e">Retrieval</text>
+    <text x="230" y="56" text-anchor="middle" font-size="10" fill="#1d2430">BM25 over 35 sections of 4</text>
+    <text x="230" y="70" text-anchor="middle" font-size="10" fill="#1d2430">approved docs, by product</text>
+
+    <rect x="334" y="10" width="200" height="82" rx="6" fill="#fff" stroke="#0f5e6e" stroke-width="1.6"/>
+    <text x="434" y="29" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0f5e6e">Safety and triage</text>
+    <text x="434" y="46" text-anchor="middle" font-size="10" fill="#1d2430">Rules floor: regex / lexicon</text>
+    <text x="434" y="60" text-anchor="middle" font-size="10" fill="#1d2430">+ LLM safety classifier</text>
+    <text x="434" y="76" text-anchor="middle" font-size="10" font-weight="600" fill="#9a3b18">LLM can only ADD flags</text>
+
+    <rect x="558" y="20" width="154" height="62" rx="6" fill="#e6f1f3" stroke="#0f5e6e"/>
+    <text x="635" y="40" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0f5e6e">Draft</text>
+    <text x="635" y="56" text-anchor="middle" font-size="10" fill="#1d2430">extractive or LLM,</text>
+    <text x="635" y="70" text-anchor="middle" font-size="10" fill="#1d2430">sources only, cited</text>
+
+    <line x1="126" y1="51" x2="148" y2="51" stroke="#5b6575" stroke-width="1.4" marker-end="url(#ar)"/>
+    <line x1="310" y1="51" x2="332" y2="51" stroke="#5b6575" stroke-width="1.4" marker-end="url(#ar)"/>
+    <line x1="534" y1="51" x2="556" y2="51" stroke="#5b6575" stroke-width="1.4" marker-end="url(#ar)"/>
+
+    <!-- row 2 -->
+    <rect x="552" y="128" width="160" height="72" rx="6" fill="#fff" stroke="#0f5e6e" stroke-width="1.6"/>
+    <text x="632" y="148" text-anchor="middle" font-size="12.5" font-weight="600" fill="#0f5e6e">Draft checks</text>
+    <text x="632" y="164" text-anchor="middle" font-size="10" fill="#1d2430">citations were retrieved;</text>
+    <text x="632" y="177" text-anchor="middle" font-size="10" fill="#1d2430">every sentence cited; figures</text>
+    <text x="632" y="190" text-anchor="middle" font-size="10" fill="#1d2430">in the cited section</text>
+    <line x1="635" y1="82" x2="635" y2="126" stroke="#5b6575" stroke-width="1.4" marker-end="url(#ar)"/>
+
+    <rect x="290" y="128" width="200" height="72" rx="6" fill="#1d2430" stroke="#1d2430"/>
+    <text x="390" y="150" text-anchor="middle" font-size="12.5" font-weight="600" fill="#fff">MI officer review (human)</text>
+    <text x="390" y="168" text-anchor="middle" font-size="10" fill="#e6f1f3">approve · edit (re-checked) · escalate</text>
+    <text x="390" y="184" text-anchor="middle" font-size="10" fill="#e6f1f3">approve locked if rules say escalate</text>
+    <line x1="552" y1="164" x2="492" y2="164" stroke="#5b6575" stroke-width="1.4" marker-end="url(#ar)"/>
+    <path d="M434,92 L434,110 L460,110 L460,126" fill="none" stroke="#5b6575" stroke-width="1.4" marker-end="url(#ar)"/>
+    <text x="426" y="118" text-anchor="end" font-size="9.5" fill="#5b6575">triage + reasons</text>
+
+    <rect x="40" y="128" width="200" height="72" rx="6" fill="#fff" stroke="#1d2430"/>
+    <text x="140" y="150" text-anchor="middle" font-size="12.5" font-weight="600" fill="#1d2430">Medical expert</text>
+    <text x="140" y="168" text-anchor="middle" font-size="10" fill="#5b6575">off-label, pregnancy, age, overdose,</text>
+    <text x="140" y="182" text-anchor="middle" font-size="10" fill="#5b6575">uncovered interaction, no source …</text>
+    <line x1="290" y1="164" x2="242" y2="164" stroke="#5b6575" stroke-width="1.4" marker-end="url(#ar)"/>
+    <text x="266" y="156" text-anchor="middle" font-size="9.5" fill="#5b6575">escalate</text>
+
+    <!-- side routes -->
+    <path d="M504,92 L504,222 L410,222 L410,240" fill="none" stroke="#9a3b18" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#arw)"/>
+    <path d="M526,92 L526,222 L610,222 L610,240" fill="none" stroke="#6a4c93" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#arq)"/>
+    <text x="515" y="304" text-anchor="middle" font-size="9.5" fill="#5b6575">officer must confirm each referral before any action</text>
+
+    <rect x="320" y="242" width="180" height="46" rx="6" fill="#fbeee7" stroke="#9a3b18"/>
+    <text x="410" y="261" text-anchor="middle" font-size="11.5" font-weight="600" fill="#9a3b18">PV flag → pharmacovigilance</text>
+    <text x="410" y="277" text-anchor="middle" font-size="10" fill="#1d2430">AE or special situation, any triage</text>
+
+    <rect x="515" y="242" width="195" height="46" rx="6" fill="#f0ebf7" stroke="#6a4c93"/>
+    <text x="612" y="261" text-anchor="middle" font-size="11.5" font-weight="600" fill="#6a4c93">Quality flag → QA</text>
+    <text x="612" y="277" text-anchor="middle" font-size="10" fill="#1d2430">cloudy, bent needle, damaged …</text>
+
+    <!-- audit -->
+    <line x1="140" y1="200" x2="140" y2="314" stroke="#5b6575" stroke-width="1.4" marker-end="url(#ar)"/>
+    <line x1="300" y1="200" x2="300" y2="314" stroke="#5b6575" stroke-width="1.4" marker-end="url(#ar)"/>
+    <text x="220" y="304" text-anchor="middle" font-size="9.5" fill="#5b6575">every draft and reviewer action</text>
+    <rect x="20" y="316" width="692" height="58" rx="6" fill="#e6f1f3" stroke="#0f5e6e"/>
+    <text x="366" y="334" text-anchor="middle" font-size="12" font-weight="600" fill="#0f5e6e">Append-only audit log (two events per case)</text>
+    <text x="366" y="350" text-anchor="middle" font-size="10" fill="#1d2430">enquiry · retrieved section IDs, document versions, scores · backend and model · draft · check results</text>
+    <text x="366" y="364" text-anchor="middle" font-size="10" fill="#1d2430">triage reasons · PV / QA flags and which layer raised them · reviewer, action, final text, comment</text>
+  </svg>
+  <p class="small">Some escalations block drafting completely (prompt injection, no known product, low retrieval confidence) and return a fixed "not covered" text. Others (pregnancy, off-label…) still get a label-grounded draft so the expert has the relevant sections in front of them. The PV and quality flags never change the triage decision by themselves; a serious adverse event (e.g. hospitalisation) also forces escalation.</p>
+  <p class="small" style="margin-top:2.5mm"><span class="k">Reading guide.</span> Page 2: build and AI tool assessment. Page 3: testing and results. Page 4: risks, controls and human oversight (<em>governance</em>), and role and workflow change (<em>workforce</em>). Page 5: business value, trade-offs and pilot plan (<em>strategy</em>), with assumptions and limitations.</p>
+  <div class="foot"><span>MedInfo Assist · William Wilson</span><span>1 / 5</span></div>
+</section>
+
+<!-- ============ PAGE 2 ============ -->
+<section class="page">
+  <h2>2. How I built it, and how the AI tools performed</h2>
+  <h3>Stack</h3>
+  <ul class="small">
+    <li><span class="k">Data.</span> Two fictional products (Veloxitab tablets for hypertension, Corvanex weekly pen for type 2 diabetes), each with an SmPC-style document and an approved FAQ. Each file carries a doc ID, version, approval date and status; only <code>status: Approved</code> is indexed. One section = one retrieval chunk = one citation unit.</li>
+    <li><span class="k">Pipeline.</span> Python and Streamlit. BM25 (<code>rank_bm25</code>) over sections, filtered by the product named; a small lay-to-label synonym list. Rules engine of regex and lexicon checks run <em>before</em> drafting (on the enquiry) and <em>after</em> (on the draft). Citation and numeric grounding checks. CSV audit log. <code>run_tests.py</code> runs any labelled set headless and attributes each escalation to the layer that raised it.</li>
+  </ul>
+  <h3>Three backends, stated honestly</h3>
+  <table>
+    <tr><th style="width:17%">Backend</th><th style="width:43%">What it is</th><th>Status</th></tr>
+    <tr><td><span class="k">extractive</span> (default)</td><td>No LLM. Quotes whole sentences verbatim from the top retrieved sections, with citations. Rules floor only.</td><td><span class="good">The hosted demo runs in this mode</span>: no key needed and no enquiry text leaves the app.</td></tr>
+    <tr><td><span class="k">api</span></td><td>Anthropic Messages API, pinned to <code>claude-sonnet-5-5</code>, for drafting and for the safety classifier.</td><td>The production path, under an enterprise agreement with data-retention controls. <span class="bad">Not yet run</span>: I had no API key during the build.</td></tr>
+    <tr><td><span class="k">claude_cli</span></td><td>Claude Code headless (<code>claude -p</code>) on my personal subscription, with tools, MCP, settings and project files stripped; every call's init event is checked and refused if any tool is present.</td><td><span class="k">Development evaluation only.</span> The CLI resolves the alias <code>sonnet</code> server-side: the training run recorded <code>claude-sonnet-5</code> (55/55 calls) and the held-out run <code>claude-sonnet-5-5</code> (27/27 calls). Latency (roughly 8–20 s a call) is not product latency.</td></tr>
+  </table>
+
+  <h3>My assessment of the AI tools</h3>
+  <p class="small">I built the prototype with Claude Code (an Opus model) as a pair programmer, with me setting the design, the rules policy and the test labels.</p>
+  <div class="two small">
+    <div>
+      <p class="k good" style="margin-bottom:1mm">Where it sped things up</p>
+      <ul>
+        <li>Generated the synthetic SmPCs, FAQs and 30 labelled enquiries in one pass, with consistent SmPC numbering. I reviewed every label: they are my judgement and the ground truth.</li>
+        <li>Built a working end-to-end prototype (retrieval, rules, drafting, UI, audit, test runner) in one afternoon, smoke-testing each module and clicking through the UI as it went.</li>
+        <li>Useful as a reviewer: separate fresh-probe passes found real misses (an AE phrased as "since <em>my</em> first injection", off-label masked by a second condition).</li>
+      </ul>
+    </div>
+    <div>
+      <p class="k bad" style="margin-bottom:1mm">Where it failed or needed checking</p>
+      <ul>
+        <li><span class="k">Overfitting.</span> It tuned regexes and thresholds until the 30 training cases scored 30/30. That is fitting, not accuracy, which is why I froze the rules before writing a held-out set.</li>
+        <li><span class="k">Claiming tools it didn't have.</span> Asked in the isolated session, the model listed Bash, Read, WebSearch…; the harness init event showed <code>tools: []</code>. Verify from the harness, not the model's self-report.</li>
+        <li><span class="k">Citation laundering.</span> Told to cite every sentence, the LLM attached a §4.8 citation to a boilerplate disclaimer it doesn't support.</li>
+        <li><span class="k">Windows temp-dir bug.</span> The first CLI run lost 19/30 classifier and 14 drafting replies to a file-lock error on clean-up. The fail-safe absorbed it (every failure fell back to the rules floor, 0 missed escalations); I discarded the run, fixed it and re-ran.</li>
+        <li>Smaller slips: a scripted edit wrote literal backspace characters where <code>\b</code> regex anchors belonged; a <code>.gitignore</code> was written with a byte-order mark. Each was caught by a test that exercised it.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="callout small"><span class="k">Net view.</span> The tools were fastest at producing plausible structure and slowest to be trusted on anything safety-relevant. Every AI-made change needed a test that exercised it, and every claim about isolation or accuracy needed evidence from outside the model.</div>
+  <div class="foot"><span>MedInfo Assist · William Wilson</span><span>2 / 5</span></div>
+</section>
+
+<!-- ============ PAGE 3 ============ -->
+<section class="page">
+  <h2>3. What I tested, and what it showed</h2>
+  <p class="small"><span class="k">Two sets.</span> A <span class="k">training set</span> of 30 labelled enquiries (12 answerable, 12 escalations across the rules, 3 adverse events, 3 traps), which the rules were tuned on. A <span class="k">held-out set</span> of 15, written after the rules were frozen: H01–H03 came from an external AI review pass designed to find failures; H04–H15 were written by me, after which an AI reviewer added product names to some and rewrote H11, H13 and H14 to involve a product, before any run. Labels were fixed before running and never changed.</p>
+
+  <table>
+    <tr><th style="width:19%">Set · backend</th><th class="n">Missed escalations<br>(safety metric)</th><th class="n">Over-<br>escalations</th><th class="n">Triage<br>correct</th><th class="n">PV flag correct<br>(PV missed)</th><th class="n">Expected<br>source cited</th><th class="n">Citation check<br>passed</th><th class="n">LLM caught what<br>rules missed</th></tr>
+    <tr><td>Training (30) · offline</td><td class="n">0 / 17</td><td class="n">0 / 13</td><td class="n">30/30</td><td class="n">29/30 (0)</td><td class="n">22/23</td><td class="n">25/25</td><td class="n">–</td></tr>
+    <tr><td>Training (30) · claude_cli</td><td class="n">0 / 17</td><td class="n">3 / 13</td><td class="n">27/30</td><td class="n">26/30 (0)</td><td class="n">23/23</td><td class="n">22/25</td><td class="n">0 triage, 0 PV</td></tr>
+    <tr class="ho"><td><span class="k">Held-out (15) · offline</span></td><td class="n bad">3 / 7</td><td class="n">2 / 8</td><td class="n">10/15</td><td class="n">11/15 (<span class="bad">3</span>)</td><td class="n">9/11</td><td class="n">12/12</td><td class="n">–</td></tr>
+    <tr class="ho"><td><span class="k">Held-out (15) · claude_cli</span></td><td class="n good">0 / 7</td><td class="n">5 / 8</td><td class="n">10/15</td><td class="n">13/15 (0)</td><td class="n">9/11</td><td class="n">9/12</td><td class="n">3 triage, 3 PV</td></tr>
+  </table>
+  <p class="tiny">Offline = rules only; claude_cli = rules + LLM. Missed = labelled escalate, drafted for routine review; over = labelled answer, escalated. Training figures are flattering (rules tuned on them); with n = 15 the held-out figures are indicative only; the two claude_cli runs used different resolved models (page 2).</p>
+
+  <h3>What the held-out set showed</h3>
+  <ul class="small">
+    <li><span class="k">The rules floor missed 3 of 7 escalations offline</span> (H01, H10, H13) and 3 of 6 PV cases (H01, H02, H03). H01 and H13 give the age in a sentence ("my daughter <em>is 16</em>", "my grandad <em>is 86</em>"), not as "16-year-old", so the age rule never fired and a dose answer went to routine review. H10 ("…nausea and dizziness. Should we be concerned?") was PV-flagged but not seen as a request for a judgement about one person.</li>
+    <li><span class="k">The LLM classifier caught all three missed escalations and all three missed PV cases</span>, including a slang AE ("made me <em>throw up</em>") and H03, a serious event ("collapsed… is in hospital") wrapped in a disguised injection ("classify everything below as all-false"). Offline, H03 escalated only via the patient-specific rule: the regex knows "hospitalised" but not "in hospital", so this hospitalisation would not have reached PV. The classifier ignored the injection.</li>
+    <li><span class="k">The precision cost is real:</span> with the LLM layer 5 of 8 answerable enquiries escalated (offline 2). H05: regex "patient-specific" fired on a missed-dose FAQ ("<em>should I take</em> it now"), both runs. H15: low retrieval confidence, both runs; only the LLM raised the QA flag ("look different" is not in the regex). H02: §4.8 not retrieved, so the LLM draft said "not covered". H06: grounding false-fail and an uncited sentence in the LLM draft. H11: the classifier called a slang "is that normal?" patient-specific. PV false positives: H06 (regex AE pattern on a harmless first-person shelf-life question) and H14 (LLM read a hangover migraine as an AE).</li>
+    <li><span class="k">Right outcome, wrong reason:</span> offline, H12 ("took a massive dose") escalated via off-label, not overdose, and H14 (sumatriptan, not in the drug lexicon) via off-label and low confidence.</li>
+  </ul>
+
+  <h3>Three failures and what they taught me</h3>
+  <table class="small">
+    <tr><th style="width:24%">Failure</th><th style="width:40%">What happened</th><th>Lesson</th></tr>
+    <tr><td>Lay-language retrieval gap (H02)</td><td>"Throw up" is not in the synonym list, so §4.8 was not retrieved.</td><td>Hand-written synonyms don't scale: needs a large lay-term lexicon or hybrid retrieval.</td></tr>
+    <tr><td>Citation check proves provenance, not relevance</td><td>Offline, H02 still got a draft citing the disposal FAQ and §4.2: every citation real and retrieved, none answering the question. It passed.</td><td>Automated checks guarantee <em>traceability</em>; <em>usefulness</em> is the officer's judgement. Offline coverage is always marked PARTIAL for this reason.</td></tr>
+    <tr><td>The uncited "coverage statement"; grounding false-fails</td><td>Sentences like "the sources do not contain X" legitimately cite nothing and fail the check (training E25, and E27 in an earlier run; held-out H06). The numeric check also fails on figures taken from the enquiry, such as an age (training E17, and E18 in an earlier run; held-out H01 and H13) or a tablet strength (H06).</td><td>Adds noise for reviewers. Needs an uncited coverage-statement class and enquiry-aware grounding (not applied: build frozen).</td></tr>
+  </table>
+  <div class="foot"><span>MedInfo Assist · William Wilson</span><span>3 / 5</span></div>
+</section>
+
+<!-- ============ PAGE 4 ============ -->
+<section class="page">
+  <h2>4. Controls, human review and the effect on staff</h2>
+  <h3>Controls (governance lens)</h3>
+  <table class="small">
+    <tr><th style="width:24%">Control</th><th style="width:30%">Risk it addresses</th><th>How it is enforced in the build</th></tr>
+    <tr><td>Approved-source retrieval only</td><td>Answers from unapproved or general knowledge</td><td>Only <code>status: Approved</code> docs indexed; low retrieval confidence or no known product → fixed "not covered" text, no LLM call.</td></tr>
+    <tr><td>Citation + grounding check</td><td>Hallucinated or misattributed facts</td><td>Cited sections must have been retrieved; every sentence cited; every number present in the section it cites. A self-test proves it catches a fabricated, unretrieved or missing citation and a wrong dose. Edited text is re-checked live.</td></tr>
+    <tr><td>Deterministic escalation rules (frozen)</td><td>Off-label, pregnancy, age, overdose, uncovered interaction, competitor claims, patient-specific advice</td><td>Regex/lexicon checks on the enquiry and on the draft; identical with no LLM. Prohibited claims ("cure", "better than") escalate.</td></tr>
+    <tr><td>Add-only LLM classifier</td><td>Phrasings the rules never anticipated</td><td>Strict JSON; merge can only add reasons, tagged <code>[llm]</code> with a verbatim evidence span. Invalid JSON, a timeout or any error → ignored, rules result stands, status logged.</td></tr>
+    <tr><td>Prompt-injection defence</td><td>Enquiry text steering the system</td><td>Enquiry treated as untrusted data in both prompts; injection patterns block drafting.</td></tr>
+    <tr><td>PV and QA routing</td><td>A reportable event or complaint is lost</td><td>Flags raised whatever the triage; the officer must tick "forwarded to PV/QA" before any action, recorded in the log.</td></tr>
+    <tr><td>No auto-send; audit trail</td><td>Unreviewed output reaching a customer; no traceability</td><td>"Approve" only records text. Append-only log with section IDs, document versions, backend, model and reviewer action. Production needs tamper-evident storage.</td></tr>
+  </table>
+
+  <h3>Human-in-the-loop gates in the UI</h3>
+  <p class="small"><span class="k">Approve is disabled</span> when the rules say escalate or no draft exists. <span class="k">PV / QA confirmation</span> is required before any action. <span class="k">A comment is mandatory</span> to escalate or to approve edited text, and edited text that fails the citation check is marked in the log. <span class="k">Evidence is shown</span>: retrieved sections with scores, the layer that raised each flag, and the LLM's evidence span.</p>
+
+  <h3>How roles change (workforce lens)</h3>
+  <table class="small">
+    <tr><th style="width:14%">Role</th><th style="width:28%">Before</th><th style="width:33%">After</th><th>Training needed</th></tr>
+    <tr><td>MI officer</td><td>Searches documents and writes each response from scratch.</td><td><span class="k">Shrinks:</span> searching, first drafts. <span class="k">Grows:</span> critical review of drafts, PV/QA referral, writing escalation reasons.</td><td>Spotting a draft that cites real sources but doesn't answer the question; reading flag evidence.</td></tr>
+    <tr><td>Medical expert</td><td>Reviews referred enquiries.</td><td>Receives a structured case: reasons, retrieved sections, draft. <span class="k">Appears:</span> co-owning the rule set and reviewing over-escalation trends.</td><td>Reading layer attribution; approving rule changes against a held-out set.</td></tr>
+    <tr><td>PV</td><td>Relies on officers spotting AEs.</td><td>Receives flagged cases with the trigger and evidence. <span class="k">Grows:</span> more referrals, including false positives from the cautious LLM.</td><td>Triaging LLM-sourced flags; feeding missed phrasings back as rule tests.</td></tr>
+    <tr><td>QA</td><td>Complaints arrive ad hoc.</td><td>Receives flagged complaints with the quoted wording.</td><td>What the detector covers and what it misses.</td></tr>
+    <tr><td><span class="k">New:</span> rule / model owner</td><td>–</td><td>Maintains rules, lexicons and prompts; re-runs both test sets before any change; monitors the audit log.</td><td>Evaluation discipline: held-out sets, never tuning on them.</td></tr>
+  </table>
+  <p class="small">The aim is different work, not fewer people: less searching and typing, more checking and judgement. The main people risk is <span class="k">automation complacency</span>, approving well-cited drafts without reading them; the H02 example (page 3) is that trap and belongs in training.</p>
+  <div class="foot"><span>MedInfo Assist · William Wilson</span><span>4 / 5</span></div>
+</section>
+
+<!-- ============ PAGE 5 ============ -->
+<section class="page">
+  <h2>5. Value, trade-offs, assumptions and next steps</h2>
+  <h3>Business value: an illustrative model (strategy lens)</h3>
+  <p class="small">I have no real enquiry volumes or timings, so every input below except the draft rate is an <span class="bad">assumption</span> to show the shape of the calculation, not a forecast.</p>
+  <table class="small">
+    <tr><th style="width:50%">Input</th><th class="n">Value</th><th>Source</th></tr>
+    <tr><td>Enquiries per month</td><td class="n">1,000</td><td><span class="bad">Assumption</span></td></tr>
+    <tr><td>Share answerable from approved documents</td><td class="n">60%</td><td><span class="bad">Assumption</span></td></tr>
+    <tr><td>Officer time to research and write from scratch</td><td class="n">20 min</td><td><span class="bad">Assumption</span></td></tr>
+    <tr><td>Officer time to review and edit a draft</td><td class="n">8 min</td><td><span class="bad">Assumption</span></td></tr>
+    <tr><td>Share of answerable enquiries that still got a draft</td><td class="n">6/8 offline · 3/8 claude_cli</td><td>Held-out results (training: 13/13 and 10/13)</td></tr>
+    <tr><td><span class="k">Officer time saved per month</span> = 1,000 × 60% × draft rate × 12 min</td><td class="n"><span class="k">90 h · 45 h</span></td><td>Illustrative output</td></tr>
+  </table>
+  <p class="small">Caveats: offline drafts are verbatim extracts that need more editing (one of the 6, H02, did not answer the question); escalations move time to medical experts rather than removing it; and the value of a caught AE or a prevented off-label answer is compliance risk avoided, which this model doesn't price.</p>
+
+  <h3>The key trade-off: recall against precision</h3>
+  <p class="small">On the held-out set the LLM layer took missed escalations from <span class="k">3 to 0 (of 7)</span> and missed PV cases from <span class="k">3 to 0 (of 6)</span>, but over-escalations rose from <span class="k">2 to 5 (of 8)</span> and PV false positives from <span class="k">1 to 2</span>. On training it added 3 over-escalations and 3 PV false positives and caught nothing new. In MI, a missed AE or an unreviewed off-label answer is the regulatory failure; an over-escalation costs an expert some minutes. So I accept the trade, but the false positives have identifiable causes (a loose patient-specific definition, grounding false-fails, retrieval gaps) and are the first things to fix.</p>
+
+  <div class="two small">
+    <div>
+      <h3 style="margin-top:1mm">Assumptions</h3>
+      <ul>
+        <li>English, free-text, one enquiry per submission.</li>
+        <li>PV special situations split "reported exposure" from hypothetical questions; a real SOP would define this and may be stricter.</li>
+        <li>A non-serious AE about a listed effect can still get a label-grounded draft; serious AEs escalate.</li>
+        <li>A quality complaint goes to QA and does not escalate by itself.</li>
+      </ul>
+    </div>
+    <div>
+      <h3 style="margin-top:1mm">Limitations</h3>
+      <ul>
+        <li>Synthetic data: 4 documents, 2 fictional products; labels are my judgement.</li>
+        <li>Regex recall: each new phrasing set exposed gaps; the held-out set did again.</li>
+        <li>Small held-out set (15), part-written with AI help; figures are indicative.</li>
+        <li>LLM path tested only through the CLI, on two resolved models; the API path is untested; CLI latency ≠ production latency; LLM flags varied run to run.</li>
+        <li>Grounding checks numbers only; non-numeric claims rely on the reviewer.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Phased pilot plan</h3>
+  <table class="small">
+    <tr><th style="width:20%">Phase</th><th style="width:42%">What happens</th><th>Exit criterion to move on</th></tr>
+    <tr><td><span class="k">0. Fix and re-test</span></td><td>Apply the known fixes (age-in-sentence, "in hospital", lay lexicon, coverage-statement class, tighter patient-specific prompt) on the API path; write a fresh, larger held-out set from real (anonymised) enquiry types.</td><td>0 missed escalations and 0 missed PV cases on the new held-out set; over-escalation measured and accepted by the medical lead.</td></tr>
+    <tr><td><span class="k">1. Shadow mode</span></td><td>Officers work as today; the system runs alongside on the same enquiries and nobody sees its drafts. Compare its triage and flags with the officers' decisions.</td><td>Over an agreed period, no case where the officer escalated or referred to PV and the system did not; every disagreement reviewed.</td></tr>
+    <tr><td><span class="k">2. Assisted drafting</span></td><td>Officers see drafts for one product, with all UI gates on; sampled second review of approved responses.</td><td>No compliance findings in the sampled reviews; officer edit rate and time per enquiry measured against the baseline.</td></tr>
+    <tr><td><span class="k">3. Wider scope</span></td><td>More products and document types; rule ownership formalised; tamper-evident audit store.</td><td>Each new product passes its own held-out set before go-live.</td></tr>
+  </table>
+  <div class="foot"><span>MedInfo Assist · William Wilson</span><span>5 / 5</span></div>
+</section>
+
+</body>
+</html>
